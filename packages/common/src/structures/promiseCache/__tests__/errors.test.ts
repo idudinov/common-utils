@@ -1,5 +1,6 @@
 
 import { PromiseCache } from '../index.js';
+import { describe, beforeEach, afterEach, test } from 'vitest';
 
 describe('PromiseCache errors', () => {
 
@@ -12,7 +13,7 @@ describe('PromiseCache errors', () => {
     });
 
     describe('error tracking', () => {
-        it('stores and retrieves errors per key', async () => {
+        test('stores and retrieves errors per key', async () => {
             const fetchError = new Error('Fetch failed');
 
             const cache = new PromiseCache<string, string>(
@@ -31,7 +32,7 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('ok')).toBeNull();
         });
 
-        it('getLazy exposes error', async () => {
+        test('getLazy exposes error', async () => {
             const fetchError = new Error('Lazy error');
 
             const cache = new PromiseCache<string, string>(
@@ -48,7 +49,7 @@ describe('PromiseCache errors', () => {
             expect(lazy.error).toBe(fetchError);
         });
 
-        it('error is cleared on successful re-fetch', async () => {
+        test('error is cleared on successful re-fetch', async () => {
             let shouldFail = true;
 
             const cache = new PromiseCache<string, string>(
@@ -68,7 +69,7 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('a')).toBeNull();
         });
 
-        it('error is cleared on invalidate', async () => {
+        test('error is cleared on invalidate', async () => {
             const cache = new PromiseCache<string, string>(
                 async () => { throw new Error('fail'); },
             );
@@ -80,7 +81,7 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('a')).toBeNull();
         });
 
-        it('error is cleared on clear', async () => {
+        test('error is cleared on clear', async () => {
             const cache = new PromiseCache<string, string>(
                 async () => { throw new Error('fail'); },
             );
@@ -92,7 +93,7 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('a')).toBeNull();
         });
 
-        it('clear resets all state including errors', async () => {
+        test('clear resets all state including errors', async () => {
             const cache = new PromiseCache<string, string>(
                 async () => { throw new Error('fail'); },
             );
@@ -111,7 +112,7 @@ describe('PromiseCache errors', () => {
     });
 
     describe('onError callback', () => {
-        it('calls onError when fetcher fails', async () => {
+        test('calls onError when fetcher fails', async () => {
             const fetchError = new Error('Fetch failed');
             const onError = vi.fn();
 
@@ -125,7 +126,7 @@ describe('PromiseCache errors', () => {
             expect(onError).toHaveBeenCalledWith('a', fetchError);
         });
 
-        it('does not call onError on success', async () => {
+        test('does not call onError on success', async () => {
             const onError = vi.fn();
 
             const cache = new PromiseCache<string, string>(
@@ -136,7 +137,7 @@ describe('PromiseCache errors', () => {
             expect(onError).not.toHaveBeenCalled();
         });
 
-        it('ignores errors thrown by onError callback', async () => {
+        test('ignores errors thrown by onError callback', async () => {
             const cache = new PromiseCache<string, string>(
                 async () => { throw new Error('fetch error'); },
             ).useOnError(() => { throw new Error('callback error'); });
@@ -145,7 +146,7 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
         });
 
-        it('receives original key type for non-string keys', async () => {
+        test('receives original key type for non-string keys', async () => {
             const onError = vi.fn();
 
             const cache = new PromiseCache<string, number>(
@@ -159,7 +160,7 @@ describe('PromiseCache errors', () => {
             expect(onError).toHaveBeenCalledWith(42, expect.any(Error));
         });
 
-        it('can be removed with null', async () => {
+        test('can be removed with null', async () => {
             const onError = vi.fn();
 
             const cache = new PromiseCache<string, string>(

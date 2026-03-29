@@ -2,16 +2,9 @@
 import { type ILogger, LoggersManager } from '../../../logger/index.js';
 import { random } from '../../../math/index.js';
 import { DeferredGetter, PromiseCache } from '../index.js';
+import { delayedValue, delayedError } from './helpers.js';
+import { describe, beforeEach, afterEach, test } from 'vitest';
 
-/** Helper: creates a delayed async function using fake timers */
-function delayedValue<T>(ms: number, value: T): Promise<T> {
-    return new Promise<T>(resolve => setTimeout(() => resolve(value), ms));
-}
-
-/** Helper: creates a delayed async function that throws using fake timers */
-function delayedError(ms: number, error: Error): Promise<never> {
-    return new Promise<never>((_, reject) => setTimeout(() => reject(error), ms));
-}
 
 describe('PromiseCache', () => {
 
@@ -25,7 +18,7 @@ describe('PromiseCache', () => {
         vi.useRealTimers();
     });
 
-    it('Empty Deferred Getter', async () => {
+    test('Empty Deferred Getter', async () => {
         expect(DeferredGetter.Empty.current).toBeUndefined();
         expect(DeferredGetter.Empty.isLoading).toBe(false);
         expect(DeferredGetter.Empty.error).toBeNull();
@@ -33,7 +26,7 @@ describe('PromiseCache', () => {
         await expect(DeferredGetter.Empty.promise).resolves.toBeUndefined();
     });
 
-    it('getDeferred (deprecated) still works', async () => {
+    test('getDeferred (deprecated) still works', async () => {
         const cache = new PromiseCache<string>(async (id) => `value-${id}`);
 
         const deferred = cache.getDeferred('x');
@@ -45,7 +38,7 @@ describe('PromiseCache', () => {
         expect(deferred.isLoading).toBe(false);
     });
 
-    it('hard load', async () => {
+    test('hard load', async () => {
         const COUNT = 1000;
         const TEST_ID = '123';
         const TEST_OBJ = { HELLO: 'WORLD' };
@@ -56,7 +49,7 @@ describe('PromiseCache', () => {
             loaderFn();
             await delayedValue(200, undefined);
             return TEST_OBJ;
-        }, null, null);
+        }, undefined, undefined);
 
         expect(cache.loadingCount).toBe(0);
 
@@ -79,7 +72,7 @@ describe('PromiseCache', () => {
         await expect(promise).resolves.toBe(TEST_OBJ);
     });
 
-    it('infrastructure', async () => {
+    test('infrastructure', async () => {
         const loaderFn = vi.fn();
         const TEST_OBJ = { HELLO: 'WORLD' };
 
@@ -158,16 +151,16 @@ describe('PromiseCache', () => {
 
         expect(cache.hasKey(1)).toBe(false);
 
-        cache.updateValueDirectly(1, getRes(1));
+        cache.set(1, getRes(1));
         expect(cache.hasKey(1)).toBe(true);
 
         const lazy = cache.getLazy(1);
         expect(lazy.currentValue).not.toBeUndefined();
-        expect(lazy.isLoading).toBeNull(); // status cleared by updateValueDirectly
+        expect(lazy.isLoading).toBeNull(); // status cleared by set()
         await expect(lazy.promise).resolves.toStrictEqual(getRes(1));
     });
 
-    it('fetching fails', async () => {
+    test('fetching fails', async () => {
         const cache = new PromiseCache<number, number>(
             async _id => delayedError(100, new Error('Fetch failed')),
             id => id.toString(),
@@ -187,7 +180,7 @@ describe('PromiseCache', () => {
         await expect(p2).resolves.toBeUndefined();
     });
 
-    it('batching fails', async () => {
+    test('batching fails', async () => {
         const loaderFn = vi.fn();
         const TEST_OBJ = { HELLO: 'WORLD' };
 
@@ -245,7 +238,7 @@ describe('PromiseCache', () => {
         }
     });
 
-    it('continuos batching', async () => {
+    test('continuos batching', async () => {
         const getRes = (id: string | number) => ({ id });
 
         const fetcher = vi.fn(async (id: string | number) => {
@@ -292,7 +285,7 @@ describe('PromiseCache', () => {
         expect(fetcher).toHaveBeenCalledTimes(0);
     });
 
-    it('clears', async () => {
+    test('clears', async () => {
         const cache = new PromiseCache<number, number>(
             async id => delayedValue(200, id),
             id => id.toString(),
@@ -317,7 +310,7 @@ describe('PromiseCache', () => {
         expect(cache.getCurrent(1, false)).toBeUndefined();
     });
 
-    it('auto-invalidation', async () => {
+    test('auto-invalidation', async () => {
         const generator = vi.fn(() => random(0, 10000));
 
         const cache = new PromiseCache<string, string>(
@@ -344,14 +337,17 @@ describe('PromiseCache', () => {
 
         await vi.advanceTimersByTimeAsync(51);
 
-        expect(cache.getCurrent('1', false)).toBeUndefined();
+        // Stale value is always kept (stale-while-revalidate)
+        const staleValue = cache.getCurrent('1', false);
+        expect(staleValue).toBeTruthy();
+        expect(cache.getIsValid('1')).toBe(false); // but it's invalidated
 
         const p3 = cache.get('1');
         await vi.advanceTimersByTimeAsync(50);
         await expect(p3).resolves.toBeTruthy();
         checkGenerator(1);
 
-        cache.useInvalidationTime(100, true);
+        cache.useInvalidationTime(100);
 
         const previous = cache.getCurrent('1');
         expect(previous).toBeTruthy();

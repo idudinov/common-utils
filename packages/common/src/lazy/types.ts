@@ -30,12 +30,18 @@ export interface ILazyPromise<T, TInitial extends T | undefined = undefined> ext
      */
     readonly isLoading: boolean | null | undefined;
 
-    /** Returns the promise for the value, triggering loading if not started. */
-    readonly promise: Promise<T>;
+    /**
+     * Returns the promise for the value, triggering loading if not started.
+     *
+     * On error, resolves to the current value (stale or initial) instead of rejecting.
+     */
+    readonly promise: Promise<T | TInitial>;
 
     /**
      * Re-executes the factory to get fresh data. If concurrent refreshes occur, the latest wins.
      * All awaiting promises will resolve to the final refreshed value.
+     *
+     * On error, resolves to the current value (stale or initial) instead of rejecting.
      *
      * **⚠️ Use sparingly:** Only refresh when explicitly needed for fresh data.
      * Over-use defeats lazy loading and caching benefits.
@@ -51,9 +57,9 @@ export interface ILazyPromise<T, TInitial extends T | undefined = undefined> ext
      * - Using instead of cache expiration (use `withExpire`)
      * - Calling in loops or high-frequency events without debouncing
      *
-     * @returns Promise resolving to the refreshed value
+     * @returns Promise resolving to the refreshed value, or the current value on error
      */
-    refresh(): Promise<T>;
+    refresh(): Promise<T | TInitial>;
 }
 
 /**

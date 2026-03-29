@@ -21,11 +21,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     private _isAsyncStateChange = false;
 
-    private _promise: Promise<T> | undefined;
+    private _promise: Promise<T | TInitial> | undefined;
     private _expireTracker: IExpireTracker | undefined;
 
     // Track the active factory promise to determine "latest wins"
-    private _activeFactoryPromise: Promise<T> | null = null;
+    private _activeFactoryPromise: Promise<T | TInitial> | null = null;
     private _error: unknown = null;
 
     private _ownDisposer?: () => void;
@@ -50,7 +50,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return this._error != null ? formatError(this._error) : null;
     }
 
-    public get promise() {
+    public get promise(): Promise<T | TInitial> {
         this.ensureInstanceLoading();
         return this._promise!;
     }
@@ -168,7 +168,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      *
      * @returns Promise resolving to the refreshed value
      */
-    public async refresh(): Promise<T> {
+    public async refresh(): Promise<T | TInitial> {
         this.startLoading(true);
         return this._promise!;
     }
@@ -213,7 +213,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
         if (nextState !== undefined) {
             if (this._isAsyncStateChange) {
-                setImmediate(() => { this.updateState(nextState); });
+                Promise.resolve().then(() => {
+                    this.updateState(nextState);
+                });
             } else {
                 this.updateState(nextState);
             }
@@ -226,11 +228,19 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             return;
         }
 
-        const factoryPromise: Promise<T> = Promise.resolve(this._factory(refreshing))
+        let factoryResult: Promise<T> | T;
+        try {
+            factoryResult = this._factory(refreshing);
+        } catch (err) {
+            // Re-throwing the original error from the synchronous factory call
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+            factoryResult = Promise.reject(err);
+        }
+        const factoryPromise: Promise<T | TInitial> = Promise.resolve(factoryResult)
             .then(res => {
                 if (!this._activeFactoryPromise) {
                     // this promise was abandoned: was superseded or reset called
-                    return this._instance ?? this._initial as T;
+                    return this._instance ?? this._initial;
                 }
 
                 if (this._activeFactoryPromise === factoryPromise) {
@@ -247,10 +257,15 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
                 return this._activeFactoryPromise;
             })
             .catch(err => {
-                if (!this._activeFactoryPromise || this._activeFactoryPromise === factoryPromise) {
-                    return this.onRejected(err) as T;
+                if (!this._activeFactoryPromise) {
+                    // Abandoned (reset/dispose was called) — don't corrupt state
+                    return this._instance ?? this._initial;
                 }
-                throw err;
+                if (this._activeFactoryPromise === factoryPromise) {
+                    return this.onRejected(err);
+                }
+                // Stale promise — delegate to the latest active promise instead of re-throwing
+                return this._activeFactoryPromise;
             });
 
         const hadActive = !!this._activeFactoryPromise;
@@ -270,10 +285,10 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         // Keep the current instance on error (don't reset to initial)
         // This allows retaining the last successful value
         const currentInstance = this._instance !== undefined ? this._instance : this._initial;
-        this._promise = Promise.resolve(currentInstance) as Promise<T>;
+        this._promise = Promise.resolve(currentInstance);
         this._activeFactoryPromise = null;
         this.setError(e);
-        return currentInstance as T;
+        return currentInstance;
     }
 
     protected updateState(isLoading: boolean | null) {

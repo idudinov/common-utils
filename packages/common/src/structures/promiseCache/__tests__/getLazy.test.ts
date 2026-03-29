@@ -1,5 +1,6 @@
 
 import { PromiseCache } from '../index.js';
+import { vi, beforeEach, afterEach, describe, test } from 'vitest';
 
 describe('PromiseCache getLazy', () => {
 
@@ -11,7 +12,7 @@ describe('PromiseCache getLazy', () => {
         vi.useRealTimers();
     });
 
-    it('returns ILazyPromise interface for a cache key', async () => {
+    test('returns ILazyPromise interface for a cache key', async () => {
         const cache = new PromiseCache<string>(async (id) => `value-${id}`);
 
         const lazy = cache.getLazy('a');
@@ -34,7 +35,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.error).toBeNull();
     });
 
-    it('value triggers fetch', async () => {
+    test('value triggers fetch', async () => {
         const fetcher = vi.fn(async (id: string) => `value-${id}`);
         const cache = new PromiseCache<string>(fetcher);
 
@@ -48,7 +49,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.value).toBe('value-a');
     });
 
-    it('currentValue does not trigger fetch', async () => {
+    test('currentValue does not trigger fetch', async () => {
         const fetcher = vi.fn(async (id: string) => `value-${id}`);
         const cache = new PromiseCache<string>(fetcher);
 
@@ -59,7 +60,7 @@ describe('PromiseCache getLazy', () => {
         expect(fetcher).not.toHaveBeenCalled();
     });
 
-    it('refresh invalidates and re-fetches', async () => {
+    test('refresh invalidates and re-fetches', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => ++counter);
 
@@ -72,7 +73,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.value).toBe(2);
     });
 
-    it('refresh works after error', async () => {
+    test('refresh works after error', async () => {
         let shouldFail = true;
         const cache = new PromiseCache<string>(async (id) => {
             if (shouldFail) throw new Error('fail');
@@ -92,7 +93,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.hasValue).toBe(true);
     });
 
-    it('exposes errors from failed fetches', async () => {
+    test('exposes errors from failed fetches', async () => {
         const fetchError = new Error('getLazy fetch error');
         const cache = new PromiseCache<string>(async () => { throw fetchError; });
 
@@ -103,7 +104,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.hasValue).toBe(false);
     });
 
-    it('isLoading tracks fetch state', async () => {
+    test('isLoading tracks fetch state', async () => {
         let resolve: (v: string) => void;
         const cache = new PromiseCache<string>(async () => new Promise<string>(r => { resolve = r; }));
 
@@ -119,19 +120,19 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.isLoading).toBe(false);
     });
 
-    it('errorMessage returns null', async () => {
+    test('errorMessage returns formatted error string', async () => {
         const cache = new PromiseCache<string>(async () => { throw new Error('fail'); });
 
         const lazy = cache.getLazy('a');
         expect(lazy.errorMessage).toBeNull();
 
         await lazy.promise;
-        // errorMessage is always null on cache getLazy (errors are raw)
-        expect(lazy.errorMessage).toBeNull();
+        // errorMessage formats the error for display (deprecated, use .error instead)
+        expect(lazy.errorMessage).toBe('fail');
         expect(lazy.error).toBeInstanceOf(Error);
     });
 
-    it('isLoading returns null after invalidation', async () => {
+    test('isLoading returns null after invalidation', async () => {
         const cache = new PromiseCache<string>(async id => id)
             .useInvalidationTime(50);
 
@@ -144,7 +145,7 @@ describe('PromiseCache getLazy', () => {
     });
 
     describe('counts', () => {
-        it('cachedCount tracks resolved items', async () => {
+        test('cachedCount tracks resolved items', async () => {
             const cache = new PromiseCache<string, string>(async id => id);
 
             expect(cache.cachedCount).toBe(0);
@@ -165,7 +166,7 @@ describe('PromiseCache getLazy', () => {
             expect(cache.cachedCount).toBe(0);
         });
 
-        it('promisesCount tracks in-flight fetches', async () => {
+        test('promisesCount tracks in-flight fetches', async () => {
             const resolvers: Record<string, (v: string) => void> = {};
             const cache = new PromiseCache<string, string>(
                 async id => new Promise(r => { resolvers[id] = r; }),
@@ -188,7 +189,7 @@ describe('PromiseCache getLazy', () => {
             expect(cache.promisesCount).toBe(0);
         });
 
-        it('loadingCount tracks loading items', async () => {
+        test('loadingCount tracks loading items', async () => {
             const resolvers: Record<string, (v: string) => void> = {};
             const cache = new PromiseCache<string, string>(
                 async id => new Promise(r => { resolvers[id] = r; }),
@@ -208,7 +209,7 @@ describe('PromiseCache getLazy', () => {
             expect(cache.loadingCount).toBe(0);
         });
 
-        it('invalidCount tracks expired items', async () => {
+        test('invalidCount tracks expired items', async () => {
             const cache = new PromiseCache<string, string>(
                 async id => id,
             ).useInvalidationTime(50);
