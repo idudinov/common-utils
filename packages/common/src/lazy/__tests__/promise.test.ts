@@ -223,7 +223,7 @@ describe('LazyPromise', () => {
             await l.promise;
             expect(l.error).toBeInstanceOf(Error);
             expect(l.errorMessage).toBe('async error message');
-            expect(l.hasValue).toBeTrue();
+            expect(l.hasValue).toBeFalse();
             expect(l.value).toBeUndefined();
         }
 
@@ -278,6 +278,49 @@ describe('LazyPromise', () => {
         expect(lazy.isLoading).toBeNull();
         expect(lazy.error).toBeNull();
         expect(lazy.hasValue).toBeFalse();
+    });
+
+    // ─── hasResolvedValue type narrowing ─────────────────────────────────
+
+    test('hasResolvedValue narrows type after successful load', async () => {
+        const lazy = new LazyPromise(async () => {
+            await delay(10);
+            return { name: 'Alice' };
+        });
+
+        expect(lazy.hasResolvedValue()).toBe(false);
+
+        const p = lazy.promise;
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
+
+        expect(lazy.hasResolvedValue()).toBe(true);
+
+        if (lazy.hasResolvedValue()) {
+            // Type narrowing: value is { name: string }, not { name: string } | undefined
+            const name: string = lazy.value.name;
+            expect(name).toBe('Alice');
+
+            const current: { name: string } = lazy.currentValue;
+            expect(current.name).toBe('Alice');
+        }
+    });
+
+    test('hasResolvedValue returns false after error', async () => {
+        const lazy = new LazyPromise(async () => {
+            throw new Error('fail');
+        });
+
+        await lazy.promise;
+
+        expect(lazy.hasResolvedValue()).toBe(false);
+        expect(lazy.hasValue).toBe(false);
+        expect(lazy.error).toBeInstanceOf(Error);
+    });
+
+    test('hasResolvedValue returns false before load', () => {
+        const lazy = new LazyPromise(async () => 42);
+        expect(lazy.hasResolvedValue()).toBe(false);
     });
 
 });

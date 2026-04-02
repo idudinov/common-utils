@@ -5,7 +5,14 @@ export interface ILazy<T> {
     /** Returns current value, triggering loading if not yet loaded. */
     readonly value: T;
 
-    /** Returns true if value has been loaded. Does not trigger loading. */
+    /**
+     * Returns true if a value of type `T` has been successfully loaded (no error).
+     *
+     * When `true`, `value` is guaranteed to be `T` (not `TInitial` or an error fallback).
+     * When `false`, `value` may be `TInitial`, `undefined`, or a stale value from a previous successful load.
+     *
+     * Does not trigger loading.
+     */
     readonly hasValue: boolean;
 
     /** Returns current value or undefined if not loaded. Does not trigger loading. */
@@ -60,6 +67,31 @@ export interface ILazyPromise<T, TInitial extends T | undefined = undefined> ext
      * @returns Promise resolving to the refreshed value, or the current value on error
      */
     refresh(): Promise<T | TInitial>;
+
+    /**
+     * Type-narrowing check: returns `true` if the value has been successfully resolved to `T`.
+     *
+     * When this returns `true`, `value` and `currentValue` are narrowed to `T` (not `TInitial`).
+     *
+     * @example
+     * ```typescript
+     * const lazy: ILazyPromise<User> = cache.getLazy('user-1');
+     * if (lazy.hasResolvedValue()) {
+     *     // lazy.value is `User` here, not `User | undefined`
+     *     console.log(lazy.value.name);
+     * }
+     * ```
+     */
+    hasResolvedValue(): this is IResolvedLazyPromise<T, TInitial>;
+}
+
+/** Narrowed state of ILazyPromise after successful resolution. */
+export interface IResolvedLazyPromise<T, TInitial extends T | undefined = undefined> extends ILazyPromise<T, TInitial> {
+    readonly value: T;
+    readonly currentValue: T;
+    readonly hasValue: true;
+    readonly isLoading: false;
+    readonly error: null;
 }
 
 /**

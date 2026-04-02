@@ -1,4 +1,4 @@
-import type { ILazyPromise } from '../../lazy/types.js';
+import type { ILazyPromise, IResolvedLazyPromise } from '../../lazy/types.js';
 import { formatError } from '../../functions/safe.js';
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
@@ -179,7 +179,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     getLazy(key: K): ILazyPromise<T, TInitial> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const self = this;
-        return {
+        const lazy: ILazyPromise<T, TInitial> = {
             get value() { return self.getCurrent(key); },
             get currentValue() { return self.getCurrent(key, false); },
             get hasValue() {
@@ -200,7 +200,11 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
             refresh() {
                 return self.refresh(key);
             },
+            hasResolvedValue(this: ILazyPromise<T, TInitial>): this is IResolvedLazyPromise<T, TInitial> {
+                return lazy.hasValue;
+            },
         };
+        return lazy;
     }
 
     /**

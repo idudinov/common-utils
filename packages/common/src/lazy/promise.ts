@@ -2,7 +2,7 @@ import { tryDispose, type IDisposable } from '../functions/disposer.js';
 import { formatError } from '../functions/safe.js';
 import type { IResettableModel } from '../models/types.js';
 import type { IExpireTracker } from '../structures/expire.js';
-import type { IControllableLazyPromise, ILazyPromiseExtension, LazyFactory } from './types.js';
+import type { IControllableLazyPromise, ILazyPromiseExtension, IResolvedLazyPromise, LazyFactory } from './types.js';
 
 /**
  * Asynchronous lazy-loading container that initializes via a promise-based factory.
@@ -42,8 +42,15 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     /** Current loading state: true = loading, false = loaded, null = not started */
     public get isLoading() { return this._state; }
-    public get hasValue() { return this._state === false; }
+
+    /** Returns true if a value of type `T` has been successfully loaded (no error). */
+    public get hasValue() { return this._state === false && this._error == null; }
     public get error(): unknown { return this._error; }
+
+    /** @inheritdoc */
+    public hasResolvedValue(): this is LazyPromise<T, TInitial> & IResolvedLazyPromise<T, TInitial> {
+        return this._state === false && this._error == null;
+    }
 
     /** @deprecated Use {@link error} instead. */
     public get errorMessage(): string | null {
