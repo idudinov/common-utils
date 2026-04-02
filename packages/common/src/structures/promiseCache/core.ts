@@ -266,7 +266,8 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
 
     /** Returns the current cached value, optionally triggering a fetch. Falls back to the initial value if configured. */
     getCurrent(id: K, initiateFetch = true): T | TInitial {
-        const { item, key } = this._getCurrent(id);
+        const key = this._pk(id);
+        const item = this._getItem(key);
         if (initiateFetch) {
             this.get(id);
         }
@@ -403,8 +404,10 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
 
     // ─── Protected hooks ─────────────────────────────────────────────────
 
-    /** Returns the current cached value for the specified key, without triggering a fetch. */
-    protected abstract _getCurrent(id: K): { item: T | undefined; key: string; isInvalid: boolean };
+    /** Returns the cached item for the specified key. Override to hook into reads (e.g. for observability). */
+    protected _getItem(key: string): T | undefined {
+        return this._itemsCache.get(key);
+    }
 
     /**
      * Checks if the cached item for the specified key is invalidated (expired).
