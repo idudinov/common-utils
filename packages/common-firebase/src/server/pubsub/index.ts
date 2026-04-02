@@ -95,10 +95,10 @@ export namespace PubSub {
                 }
 
                 const pubsub = await this._instanceLoader.promise;
-                const topic = pubsub.topic(name);
+                const topic = pubsub?.topic(name);
 
                 try {
-                    await topic.publishMessage({ json: data });
+                    await topic?.publishMessage({ json: data });
                 } catch (e) {
                     logger.value?.error('Failed to publish error ', e);
                 }
