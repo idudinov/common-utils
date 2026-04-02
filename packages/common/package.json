@@ -6,14 +6,14 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Zajno/common-utils.git"
+    "url": "git+https://github.com/idudinov/common-utils.git"
   },
   "author": "Zajno <hello@zajno.com> (https://zajno.com)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Zajno/common-utils/issues"
+    "url": "https://github.com/idudinov/common-utils/issues"
   },
-  "homepage": "https://github.com/Zajno/common-utils/tree/main/packages/common#readme",
+  "homepage": "https://github.com/idudinov/common-utils/tree/main/packages/common#readme",
   "scripts": {
     "clean": "scripty",
     "dev": "scripty",

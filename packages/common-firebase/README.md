@@ -1,6 +1,6 @@
 # Zajno's Toolbox for Firebase projects
 
-Moved from [Zajno/common-firebase](https://github.com/Zajno/common-firebase).
+Moved from [Zajno/common-firebase](https://github.com/Zajno/common-firebase). Now maintained at [idudinov/common-utils](https://github.com/idudinov/common-utils).
 
 Extension for [`@zajno/common`](../common), which adds more tools for development projects based on [Firebase](https://firebase.google.com/).
 
