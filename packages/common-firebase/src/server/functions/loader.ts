@@ -53,7 +53,7 @@ export function wrapLoaderFunction<TFn extends Fn<TArgs>, TArgs extends any[]>(w
     const lazyPromise = new LazyPromise(workerLoader);
     return (async (...args: TArgs) => {
         const handler = await lazyPromise.promise;
-        return handler(...args);
+        return handler?.(...args);
     }) as TFn;
 }
 

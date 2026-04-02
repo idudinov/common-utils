@@ -14,7 +14,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-token:
+    runs-on: ubuntu-latest
+    outputs:
+      has-token: ${{ steps.check.outputs.has-token }}
+    steps:
+      - id: check
+        run: echo "has-token=${{ secrets.COVERALLS_REPO_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
   test-report-coverage:
+    needs: check-token
+    if: github.event.pull_request.draft != true && needs.check-token.outputs.has-token == 'true'
     runs-on: ubuntu-latest
 
     steps:
