@@ -27,7 +27,7 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             | 'storeResult'
             | 'onFetchComplete'
             | 'onFetchSuperseded'
-            | '_set'
+            | '_deleteKey'
             | 'clear'
             | 'sanitize'
         >(this, {
@@ -37,7 +37,7 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             storeResult: action,
             onFetchComplete: action,
             onFetchSuperseded: action,
-            _set: action,
+            _deleteKey: action,
             clear: action,
             sanitize: action,
         });
@@ -54,8 +54,8 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
         return new NumberModel();
     }
 
-    protected pure_createItemsCache(): IMapModel<string, T | undefined> {
-        return observable.map<string, T | undefined>(undefined, { deep: false });
+    protected pure_createItemsCache(): IMapModel<string, T> {
+        return observable.map<string, T>(undefined, { deep: false });
     }
 
     protected pure_createItemsStatus(): IMapModel<string, boolean> {

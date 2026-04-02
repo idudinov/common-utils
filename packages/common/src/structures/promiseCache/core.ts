@@ -22,7 +22,7 @@ import type { DeferredGetter } from './types.js';
 export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undefined = undefined> extends Loggable {
 
     /** Stores resolved items in map by id. */
-    protected readonly _itemsCache: IMapModel<string, T | undefined>;
+    protected readonly _itemsCache: IMapModel<string, T>;
 
     /** Stores items loading state (loading or not) in map by id. */
     protected readonly _itemsStatus: IMapModel<string, boolean>;
@@ -107,8 +107,8 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
      *
      * Warning: as name indicates, this should be "pure"/"const" function, i.e. should not reference `this`/`super`.
      */
-    protected pure_createItemsCache(): IMapModel<string, T | undefined> {
-        return new Map<string, T | undefined>();
+    protected pure_createItemsCache(): IMapModel<string, T> {
+        return new Map<string, T>();
     }
 
     /**
@@ -184,7 +184,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
             get currentValue() { return self.getCurrent(key, false); },
             get hasValue() {
                 const k = self._pk(key);
-                return self._itemsCache.has(k);
+                return self._itemsCache.has(k) && !self._errorsMap.has(k);
             },
             get error() { return self.getLastError(key); },
             /** @deprecated Use {@link error} instead. */
@@ -252,10 +252,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
      */
     getIsValid(id: K): boolean {
         const key = this._pk(id);
-        if (!this._itemsCache.has(key)) {
-            return false;
-        }
-        return !this.getIsInvalidated(key);
+        return this._itemsCache.has(key) && !this.getIsInvalidated(key);
     }
 
     /**
@@ -271,11 +268,10 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     /** Returns the current cached value, optionally triggering a fetch. Falls back to the initial value if configured. */
     getCurrent(id: K, initiateFetch = true): T | TInitial {
         const key = this._pk(id);
-        const item = this._getItem(key);
         if (initiateFetch) {
             this.get(id);
         }
-        const result = item ?? this._getInitialValue(id);
+        const result = this._getCachedOrInitial(key, id);
         this.logger.log(key, 'getCurrent: returns', result);
         return result;
     }
@@ -300,7 +296,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     /** Returns true if the item is cached or fetching was initiated. Does not initiate fetching. */
     hasKey(id: K) {
         const key = this._pk(id);
-        return this._itemsCache.get(key) !== undefined || this._itemsStatus.get(key) !== undefined;
+        return this._itemsCache.has(key) || this._itemsStatus.has(key);
     }
 
     /** Returns an iterator over the keys of the cached items. */
@@ -345,7 +341,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     /** Instantly invalidates the cached item for the specified id, like it was never fetched/accessed. */
     invalidate(id: K) {
         const key = this._pk(id);
-        this._set(key, undefined, undefined, undefined);
+        this._deleteKey(key);
         this._errorsMap.delete(key);
         this._timestamps.delete(key);
         this._activeFetchPromises.delete(key);
@@ -354,7 +350,9 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     /** Injects a value into the cache for the specified key, as if it had been fetched. Sets the timestamp and clears any previous error. Cancels any in-flight fetch for this key. */
     set(id: K, value: T) {
         const key = this._pk(id);
-        this._set(key, value, undefined, undefined);
+        this._fetchCache.delete(key);
+        this._itemsStatus.delete(key);
+        this._itemsCache.set(key, value);
         this._timestamps.set(key, Date.now());
         this._errorsMap.delete(key);
         this._activeFetchPromises.delete(key);
@@ -383,7 +381,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
         }
 
         for (const key of keysToRemove) {
-            this._set(key, undefined, undefined, undefined);
+            this._deleteKey(key);
             this._errorsMap.delete(key);
             this._timestamps.delete(key);
             this._activeFetchPromises.delete(key);
@@ -408,9 +406,10 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
 
     // ─── Protected hooks ─────────────────────────────────────────────────
 
-    /** Returns the cached item for the specified key. Override to hook into reads (e.g. for observability). */
-    protected _getItem(key: string): T | undefined {
-        return this._itemsCache.get(key);
+
+    /** Returns the cached value if present, otherwise the initial value for the key. */
+    protected _getCachedOrInitial(key: string, id: K): T | TInitial {
+        return this._itemsCache.has(key) ? this._itemsCache.get(key)! : this._getInitialValue(id);
     }
 
     /**
@@ -422,11 +421,11 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     /** Returns the initial/default value for a key. Used as fallback when no cached value exists. */
     protected abstract _getInitialValue(id: K): TInitial;
 
-    /** @internal updates all caches states at once. */
-    protected _set(key: string, item: T | undefined, promise: Promise<T> | undefined, isLoading: boolean | undefined) {
-        PromiseCacheCore._setMapX(key, this._fetchCache, promise);
-        PromiseCacheCore._setMapX(key, this._itemsStatus, isLoading);
-        PromiseCacheCore._setMapX(key, this._itemsCache, item);
+    /** @internal Deletes all cache entries for a key (item, promise, status). */
+    protected _deleteKey(key: string) {
+        this._fetchCache.delete(key);
+        this._itemsStatus.delete(key);
+        this._itemsCache.delete(key);
     }
 
     /** Updates the loading status for the specified key. Override to add a hook. */
@@ -469,12 +468,4 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
         return res;
     }
 
-    /** @internal Helper to set or delete a value in a map. */
-    protected static _setMapX<T>(key: string, map: IMapModel<string, T>, val: T) {
-        if (val === undefined) {
-            map.delete(key);
-        } else {
-            map.set(key, val);
-        }
-    }
 }
