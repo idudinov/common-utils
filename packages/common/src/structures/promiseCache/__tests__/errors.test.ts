@@ -111,6 +111,140 @@ describe('PromiseCache errors', () => {
         });
     });
 
+    describe('sticky error (no infinite re-fetch loop)', () => {
+        test('get() after failure does NOT re-fetch — error is sticky', async () => {
+            const fetcher = vi.fn(async () => {
+                throw new Error('always fails');
+            });
+
+            const cache = new PromiseCache<string, string>(fetcher);
+
+            // First get() — triggers fetch, which fails
+            await cache.get('a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+            fetcher.mockClear();
+
+            // Second get() — should NOT trigger another fetch
+            const result = await cache.get('a');
+            expect(fetcher).not.toHaveBeenCalled();
+            expect(result).toBeUndefined();
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+        });
+
+        test('getCurrent(key, true) after failure does NOT re-fetch', async () => {
+            const fetcher = vi.fn(async () => {
+                throw new Error('always fails');
+            });
+
+            const cache = new PromiseCache<string, string>(fetcher);
+
+            await cache.get('a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            fetcher.mockClear();
+
+            // getCurrent with initiateFetch=true should NOT re-trigger
+            cache.getCurrent('a', true);
+            expect(fetcher).not.toHaveBeenCalled();
+        });
+
+        test('with useInitialValue, get() after failure returns initial value without re-fetching', async () => {
+            const fetcher = vi.fn(async () => {
+                throw new Error('always fails');
+            });
+
+            const cache = new PromiseCache<string, string>(fetcher)
+                .useInitialValue('fallback');
+
+            await cache.get('a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            fetcher.mockClear();
+
+            const result = await cache.get('a');
+            expect(fetcher).not.toHaveBeenCalled();
+            expect(result).toBe('fallback');
+        });
+
+        test('refresh() after sticky error DOES re-fetch', async () => {
+            let callCount = 0;
+            const cache = new PromiseCache<string, string>(async () => {
+                callCount++;
+                if (callCount === 1) throw new Error('first call fails');
+                return 'success';
+            });
+
+            // First get() fails
+            await cache.get('a');
+            expect(callCount).toBe(1);
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+            // refresh() should re-fetch even after sticky error
+            const result = await cache.refresh('a');
+            expect(callCount).toBe(2);
+            expect(result).toBe('success');
+            expect(cache.getLastError('a')).toBeNull();
+        });
+
+        test('invalidate() + get() after error DOES re-fetch', async () => {
+            let callCount = 0;
+            const cache = new PromiseCache<string, string>(async () => {
+                callCount++;
+                if (callCount === 1) throw new Error('first call fails');
+                return 'success';
+            });
+
+            // First get() fails
+            await cache.get('a');
+            expect(callCount).toBe(1);
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+            // invalidate() resets the error state
+            cache.invalidate('a');
+            expect(cache.getLastError('a')).toBeNull();
+
+            // Now get() should re-fetch
+            const result = await cache.get('a');
+            expect(callCount).toBe(2);
+            expect(result).toBe('success');
+        });
+
+        test('multiple get() calls on consistently failing fetcher — fetcher called only once', async () => {
+            const fetcher = vi.fn(async () => {
+                throw new Error('always fails');
+            });
+
+            const cache = new PromiseCache<string, string>(fetcher);
+
+            // Call get() multiple times
+            await cache.get('a');
+            await cache.get('a');
+            await cache.get('a');
+            await cache.get('a');
+            await cache.get('a');
+
+            // Fetcher should have been called only once
+            expect(fetcher).toHaveBeenCalledTimes(1);
+        });
+
+        test('getLazy().value after failure does NOT re-fetch', async () => {
+            const fetcher = vi.fn(async () => {
+                throw new Error('always fails');
+            });
+
+            const cache = new PromiseCache<string, string>(fetcher);
+
+            const lazy = cache.getLazy('a');
+            await lazy.promise;
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            fetcher.mockClear();
+
+            // Accessing .value should NOT trigger a new fetch
+            void lazy.value;
+            expect(fetcher).not.toHaveBeenCalled();
+        });
+    });
+
     describe('onError callback', () => {
         test('calls onError when fetcher fails', async () => {
             const fetchError = new Error('Fetch failed');

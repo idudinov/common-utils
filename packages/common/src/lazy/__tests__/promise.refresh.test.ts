@@ -137,7 +137,7 @@ describe('LazyPromise refresh', () => {
         await lazy.promise;
         expect(lazy.error).toBeInstanceOf(Error);
         expect(lazy.errorMessage).toBe('Sync initial error');
-        expect(lazy.hasValue).toBeTrue();
+        expect(lazy.hasValue).toBeFalse();
         expect(lazy.value).toBeUndefined();
     });
 

@@ -1,6 +1,6 @@
 import { Disposer } from '@zajno/common/functions/disposer';
 import { PromiseCacheObservable } from '../promiseCache.js';
-import { reaction, runInAction } from 'mobx';
+import { reaction, runInAction, configure } from 'mobx';
 
 describe('PromiseCache observable', () => {
     beforeEach(() => {
@@ -441,6 +441,136 @@ describe('PromiseCache observable', () => {
         expect(lazy.value).toBe(2);
         expect(valueHandler).toHaveBeenCalledTimes(1);
         expect(valueHandler).toHaveBeenCalledWith(2);
+
+        disposer.dispose();
+    });
+
+    // ─── Sticky error: no infinite re-fetch loop ─────────────────────────
+
+    it('reaction on getCurrent does NOT cause infinite fetch loop on error', async () => {
+        // Enforce actions to catch unprotected observable mutations
+        configure({ enforceActions: 'observed' });
+
+        const fetcher = vi.fn(async () => {
+            throw new Error('always fails');
+        });
+
+        const cache = new PromiseCacheObservable<string, string>(fetcher);
+
+        // First: verify that get() after error doesn't re-fetch (non-reactive)
+        await cache.get('a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+        // Second get() should NOT re-fetch
+        await cache.get('a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        // Now test with reaction
+        fetcher.mockClear();
+        cache.clear(); // reset state
+
+        const valueHandler = vi.fn();
+        const disposer = new Disposer();
+
+        disposer.add(
+            reaction(
+                () => cache.getCurrent('a', false), // read without triggering fetch
+                v => valueHandler(v),
+                { fireImmediately: true },
+            ),
+        );
+
+        // Manually trigger fetch
+        await cache.get('a');
+
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+        // Subsequent get() should NOT re-fetch
+        await cache.get('a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        disposer.dispose();
+        configure({ enforceActions: 'never' });
+    });
+
+    it('reaction on getLazy().value does NOT cause infinite fetch loop on error', async () => {
+        const fetcher = vi.fn(async () => {
+            throw new Error('always fails');
+        });
+
+        const cache = new PromiseCacheObservable<string, string>(fetcher);
+        const lazy = cache.getLazy('a');
+
+        // First: verify non-reactive behavior
+        await lazy.promise;
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(lazy.error).toBeInstanceOf(Error);
+
+        // Accessing value should NOT re-trigger fetch
+        void lazy.value;
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        // Now test with reaction on currentValue (read-only, no fetch trigger)
+        fetcher.mockClear();
+        cache.clear();
+
+        const valueHandler = vi.fn();
+        const disposer = new Disposer();
+
+        disposer.add(
+            reaction(
+                () => lazy.currentValue,
+                v => valueHandler(v),
+                { fireImmediately: true },
+            ),
+        );
+
+        // Manually trigger fetch
+        await cache.get('a');
+
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(lazy.error).toBeInstanceOf(Error);
+
+        // Subsequent get() should NOT re-fetch
+        await cache.get('a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        disposer.dispose();
+    });
+
+    it('after sticky error, refresh() still works in observable context', async () => {
+        let callCount = 0;
+        const fetcher = vi.fn(async () => {
+            callCount++;
+            if (callCount === 1) throw new Error('first call fails');
+            return `success-${callCount}`;
+        });
+
+        const cache = new PromiseCacheObservable<string, string>(fetcher);
+
+        const valueHandler = vi.fn();
+        const disposer = new Disposer();
+
+        // Initial fetch fails
+        await cache.get('a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+        // Set up reaction
+        disposer.add(
+            reaction(
+                () => cache.getCurrent('a', false),
+                v => valueHandler(v),
+            ),
+        );
+
+        // refresh() should work and trigger the reaction
+        const result = await cache.refresh('a');
+        expect(result).toBe('success-2');
+        expect(cache.getLastError('a')).toBeNull();
+        expect(valueHandler).toHaveBeenCalledWith('success-2');
 
         disposer.dispose();
     });

@@ -117,10 +117,11 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
      * @returns A promise that resolves to the result, whether it's cached or freshly fetched.
      */
     get(id: K): Promise<T | TInitial> {
-        const { item, key, isInvalid } = this._getCurrent(id);
+        const key = this._pk(id);
 
         // return cached item if it's not invalidated
-        if (item !== undefined && !isInvalid) {
+        if (this._itemsCache.has(key) && !this.getIsInvalidated(key)) {
+            const item = this._itemsCache.get(key)!;
             this.logger.log(key, 'get: item resolved to', item);
             return Promise.resolve(item);
         }
@@ -130,6 +131,14 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
         if (promise != null) {
             this.logger.log(key, 'get: item resolved to <promise>');
             return promise;
+        }
+
+        // If a fetch is in progress or already completed (with error) and not invalidated,
+        // don't start a new fetch — error is "sticky". Use refresh() or invalidate() to retry.
+        if (this._itemsStatus.has(key) && !this.getIsInvalidated(key)) {
+            const status = this._itemsStatus.get(key);
+            this.logger.log(key, 'get: fetch already', status ? 'in progress' : 'completed (error)', '— returning initial value');
+            return Promise.resolve(this._getInitialValue(id));
         }
 
         this.setStatus(key, true);
@@ -177,23 +186,6 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
         return this._initialValueFactory ? this._initialValueFactory(id) : undefined as TInitial;
     }
 
-    protected _getCurrent(id: K) {
-        const key = this._pk(id);
-        const isInvalid = this.getIsInvalidated(key);
-        // make sure current item is hooked here from the cache (required by observers)
-        const item = this._itemsCache.get(key);
-        if (isInvalid) {
-            this.logger.log(key, 'item is invalidated');
-        }
-        return {
-            // Always keep the stale value visible — stale-while-revalidate by default.
-            // Use `invalidate()` + `get()` to clear the stale value before re-fetching.
-            item,
-            key,
-            isInvalid,
-        };
-    }
-
     protected getIsInvalidated(key: string) {
         const config = this._invalidationConfig;
         if (!config) {
@@ -211,9 +203,9 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
         }
 
         // Check callback-based invalidation
-        if (config.invalidationCheck) {
-            const value = this._itemsCache.get(key);
-            if (value !== undefined && config.invalidationCheck(key, value, ts ?? 0)) {
+        if (config.invalidationCheck && this._itemsCache.has(key)) {
+            const value = this._itemsCache.get(key)!;
+            if (config.invalidationCheck(key, value, ts ?? 0)) {
                 return true;
             }
         }
@@ -251,21 +243,19 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
             const factoryPromise = this.tryFetchInBatch(id, refreshing);
             this._activeFetchPromises.set(key, factoryPromise);
 
-            let res: T | undefined;
-            let fetchFailed = false;
+            let fetchResult: { ok: true; value: T } | { ok: false };
             try {
-                res = await factoryPromise;
+                fetchResult = { ok: true, value: await factoryPromise };
             } catch (err) {
                 this._handleError(id, err);
-                fetchFailed = true;
-                res = undefined;
+                fetchResult = { ok: false };
             }
 
             if (v !== this._version) {
                 isInSameVersion = false;
                 this._activeFetchPromises.delete(key);
                 // resolve with actual result but don't store it
-                return res ?? this._getInitialValue(id);
+                return fetchResult.ok ? fetchResult.value : this._getInitialValue(id);
             }
 
             // Check if this is still the active (latest) fetch for this key
@@ -278,25 +268,26 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
                 const newerPromise = this._fetchCache.get(key);
                 if (newerPromise) {
                     // Catch errors from the newer promise — if it fails, fall back to stale/initial value.
-                    return newerPromise.catch(() => this._itemsCache.get(key) ?? this._getInitialValue(id)) as Promise<T | TInitial>;
+                    return newerPromise.catch(() => this._getCachedOrInitial(key, id));
                 }
                 // Fallback: return current cached value or initial
-                return this._itemsCache.get(key) ?? this._getInitialValue(id);
+                return this._getCachedOrInitial(key, id);
             }
 
             // We are the latest — clean up tracking
             this._activeFetchPromises.delete(key);
 
-            if (!fetchFailed && res !== undefined) {
+            if (fetchResult.ok) {
+                const res = this.prepareResult(fetchResult.value);
                 this.logger.log(key, 'item\'s <promise> resolved to', res);
-                res = this.prepareResult(res);
                 this.storeResult(key, res);
-            } else if (fetchFailed) {
-                // Keep stale value — return whatever is in cache, or initial value
-                return this._itemsCache.get(key) ?? this._getInitialValue(id);
+                return res;
             }
 
-            return res ?? this._getInitialValue(id);
+            // Fetch failed — record timestamp for time-based invalidation expiry,
+            // and return stale value or initial.
+            this._timestamps.set(key, Date.now());
+            return this._getCachedOrInitial(key, id);
         } finally {
             if (!isInSameVersion) {
                 this.logger.log(key, 'skipping item\'s resolve due to version change ("clear()" has been called)');
@@ -376,7 +367,7 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
         }
 
         for (const key of invalidKeys) {
-            this._set(key, undefined, undefined, undefined);
+            this._deleteKey(key);
             this._errorsMap.delete(key);
             this._timestamps.delete(key);
             this._activeFetchPromises.delete(key);
@@ -403,7 +394,7 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
             }
 
             if (oldestKey != null) {
-                this._set(oldestKey, undefined, undefined, undefined);
+                this._deleteKey(oldestKey);
                 this._timestamps.delete(oldestKey);
                 this._errorsMap.delete(oldestKey);
                 this._activeFetchPromises.delete(oldestKey);
