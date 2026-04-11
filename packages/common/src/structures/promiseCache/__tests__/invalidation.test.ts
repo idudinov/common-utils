@@ -555,5 +555,28 @@ describe('PromiseCache invalidation', () => {
             expect(result).toBe('value-1');
             expect(cache.loadingCount).toBe(0);
         });
+
+        test('failing in-flight fetch after invalidate() does not leave stale error', async () => {
+            const fetcher = vi.fn(async (_id: string): Promise<string> => {
+                await delayedValue(100, undefined);
+                throw new Error('fetch failed');
+            });
+
+            const cache = new PromiseCache<string>(fetcher);
+
+            const p1 = cache.get('1');
+
+            await vi.advanceTimersByTimeAsync(30);
+            cache.invalidate('1');
+
+            // Let the failing fetch complete
+            await vi.advanceTimersByTimeAsync(100);
+            await p1;
+
+            // invalidate()'s contract: no trace of the key
+            expect(cache.getLastError('1')).toBeNull();
+            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.loadingCount).toBe(0);
+        });
     });
 });
