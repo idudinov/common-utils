@@ -234,7 +234,7 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
      */
     protected async _doFetchAsync(id: K, key: string, refreshing: boolean): Promise<T | TInitial> {
         let isInSameVersion = true;
-        let isLatest = false;
+        let completionKind: 'latest' | 'superseded' | 'cancelled' | null = null;
         try {
             this.onBeforeFetch(key);
             const v = this._version;
@@ -260,21 +260,21 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
 
             // Check if this is still the active (latest) fetch for this key
             const currentActive = this._activeFetchPromises.get(key);
-            isLatest = currentActive === factoryPromise;
 
-            if (!isLatest) {
-                if (currentActive != null) {
-                    // Superseded by a newer refresh/fetch — delegate to the latest promise
-                    const newerPromise = this._fetchCache.get(key);
-                    if (newerPromise) {
-                        return newerPromise.catch(() => this._getCachedOrInitial(key, id));
-                    }
-                    return this._getCachedOrInitial(key, id);
+            if (currentActive === factoryPromise) {
+                completionKind = 'latest';
+            } else if (currentActive != null) {
+                // Superseded by a newer refresh/fetch — delegate to the latest promise
+                completionKind = 'superseded';
+                const newerPromise = this._fetchCache.get(key);
+                if (newerPromise) {
+                    return newerPromise.catch(() => this._getCachedOrInitial(key, id));
                 }
-
-                // Active promise removed by set()/invalidate() — treat as completed
-                // so the finally block runs onFetchComplete for proper cleanup.
-                isLatest = true;
+                return this._getCachedOrInitial(key, id);
+            } else {
+                // Active promise removed by set()/invalidate() — clean up
+                // in-flight bookkeeping without restoring _itemsStatus.
+                completionKind = 'cancelled';
                 return this._getCachedOrInitial(key, id);
             }
 
@@ -295,11 +295,10 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
         } finally {
             if (!isInSameVersion) {
                 this.logger.log(key, 'skipping item\'s resolve due to version change ("clear()" has been called)');
-            } else if (isLatest) {
-                // Only the latest fetch should clean up the fetch state.
-                // Superseded fetches delegate to the latest and should not
-                // prematurely clear the fetch cache or loading status.
+            } else if (completionKind === 'latest') {
                 this.onFetchComplete(key);
+            } else if (completionKind === 'cancelled') {
+                this.onFetchCancelled(key);
             } else {
                 this.onFetchSuperseded(key);
             }
