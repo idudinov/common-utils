@@ -259,18 +259,22 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
             }
 
             // Check if this is still the active (latest) fetch for this key
-            isLatest = this._activeFetchPromises.get(key) === factoryPromise;
+            const currentActive = this._activeFetchPromises.get(key);
+            isLatest = currentActive === factoryPromise;
 
             if (!isLatest) {
-                // Superseded by a newer refresh/fetch — delegate to the latest public promise.
-                // This ensures anyone awaiting this old promise gets the fresh value,
-                // mirroring LazyPromise's "latest wins" behavior.
-                const newerPromise = this._fetchCache.get(key);
-                if (newerPromise) {
-                    // Catch errors from the newer promise — if it fails, fall back to stale/initial value.
-                    return newerPromise.catch(() => this._getCachedOrInitial(key, id));
+                if (currentActive != null) {
+                    // Superseded by a newer refresh/fetch — delegate to the latest promise
+                    const newerPromise = this._fetchCache.get(key);
+                    if (newerPromise) {
+                        return newerPromise.catch(() => this._getCachedOrInitial(key, id));
+                    }
+                    return this._getCachedOrInitial(key, id);
                 }
-                // Fallback: return current cached value or initial
+
+                // Active promise removed by set()/invalidate() — treat as completed
+                // so the finally block runs onFetchComplete for proper cleanup.
+                isLatest = true;
                 return this._getCachedOrInitial(key, id);
             }
 
