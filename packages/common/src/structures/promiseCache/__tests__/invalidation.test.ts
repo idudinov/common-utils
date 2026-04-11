@@ -513,4 +513,70 @@ describe('PromiseCache invalidation', () => {
             expect(cache.hasKey('d')).toBe(true);
         });
     });
+
+    describe('invalidate() during in-flight fetch', () => {
+        test('subsequent get() must start a new fetch', async () => {
+            const fetcher = vi.fn(async (id: string) => {
+                return delayedValue(100, `value-${id}`);
+            });
+
+            const cache = new PromiseCache<string>(fetcher);
+
+            // Start a fetch
+            const p1 = cache.get('1');
+            expect(cache.getIsLoading('1')).toBe(true);
+
+            // Invalidate while fetch is in-flight
+            await vi.advanceTimersByTimeAsync(30);
+            cache.invalidate('1');
+
+            // After invalidate, the key should look like it was never fetched
+            expect(cache.getIsLoading('1')).toBeUndefined();
+
+            // Let the original fetch complete
+            await vi.advanceTimersByTimeAsync(100);
+            await p1;
+
+            // After the stale fetch completes, the key must still be "never fetched"
+            // — invalidate()'s contract: "like it was never fetched/accessed"
+            expect(cache.loadingCount).toBe(0);
+            expect(cache.getIsLoading('1')).toBeUndefined();
+
+            // A new get() must start a fresh fetch, not return initial value
+            fetcher.mockClear();
+            const p2 = cache.get('1');
+
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            expect(cache.getIsLoading('1')).toBe(true);
+
+            await vi.advanceTimersByTimeAsync(200);
+            const result = await p2;
+
+            expect(result).toBe('value-1');
+            expect(cache.loadingCount).toBe(0);
+        });
+
+        test('failing in-flight fetch after invalidate() does not leave stale error', async () => {
+            const fetcher = vi.fn(async (_id: string): Promise<string> => {
+                await delayedValue(100, undefined);
+                throw new Error('fetch failed');
+            });
+
+            const cache = new PromiseCache<string>(fetcher);
+
+            const p1 = cache.get('1');
+
+            await vi.advanceTimersByTimeAsync(30);
+            cache.invalidate('1');
+
+            // Let the failing fetch complete
+            await vi.advanceTimersByTimeAsync(100);
+            await p1;
+
+            // invalidate()'s contract: no trace of the key
+            expect(cache.getLastError('1')).toBeNull();
+            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.loadingCount).toBe(0);
+        });
+    });
 });

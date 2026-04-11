@@ -463,6 +463,20 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
         this._loadingCount.value = this._loadingCount.value - 1;
     }
 
+    /** Hooks into cancelled fetch cleanup (set()/invalidate() called mid-flight). Decrements loading count and cleans fetch cache. Restores _itemsStatus for set() path; clears all per-key bookkeeping for invalidate() path. */
+    protected onFetchCancelled(key: string) {
+        this._loadingCount.value = this._loadingCount.value - 1;
+        this._fetchCache.delete(key);
+        if (this._itemsCache.has(key)) {
+            this._itemsStatus.set(key, false);
+        } else {
+            // invalidate() path — ensure no stale bookkeeping remains
+            this._itemsStatus.delete(key);
+            this._timestamps.delete(key);
+            this._errorsMap.delete(key);
+        }
+    }
+
     /** Hooks into the result preparation process, before it's stored into the cache. */
     protected prepareResult(res: T) {
         return res;

@@ -27,6 +27,7 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             | 'storeResult'
             | 'onFetchComplete'
             | 'onFetchSuperseded'
+            | 'onFetchCancelled'
             | '_deleteKey'
             | 'clear'
             | 'sanitize'
@@ -37,6 +38,7 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             storeResult: action,
             onFetchComplete: action,
             onFetchSuperseded: action,
+            onFetchCancelled: action,
             _deleteKey: action,
             clear: action,
             sanitize: action,
