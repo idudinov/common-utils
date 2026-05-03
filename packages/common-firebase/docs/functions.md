@@ -35,7 +35,7 @@ import { FunctionDefinition } from '@zajno/common-firebase/functions';
 const GreetEndpoint = new FunctionDefinition<{ name: string }, { message: string }>(
     'greet',  // Name
     'api',    // Namespace (optional)
-    { timeoutSeconds: 30, memory: '256MB' }, // RuntimeOptions (optional)
+    { timeoutSeconds: 30, memory: '256MiB' }, // EndpointSettings (optional)
 );
 
 // The callable name used by Firebase will be 'api-greet'
@@ -257,7 +257,7 @@ import { GlobalRuntimeOptions } from '@zajno/common-firebase/server/functions/gl
 
 GlobalRuntimeOptions.value = {
     timeoutSeconds: 120,
-    memory: '512MB',
+    memory: '512MiB',
 };
 ```
 
@@ -410,15 +410,17 @@ export const webhook = createAsyncHttpsRequestFunction(
 
 ## Helper Functions for Creating Endpoints
 
-The [`create.ts`](../src/server/functions/create.ts) module provides low-level factory functions:
+The [`create/`](../src/server/functions/create/) folder provides low-level factory functions, split by provider for tree-shaking:
 
-| Function | Description |
-|---|---|
-| [`createHttpsCallFunction()`](../src/server/functions/create.ts:12) | Creates a Firebase HTTPS Callable function from an endpoint worker. |
-| [`createHttpsRequestFunction()`](../src/server/functions/create.ts:26) | Creates a Firebase HTTPS Request function (for webhooks, REST APIs). |
-| [`createScheduledFunction()`](../src/server/functions/create.ts:30) | Creates a scheduled (cron) function. |
-| [`createTopicListener()`](../src/server/functions/create.ts:39) | Creates a Pub/Sub topic listener. |
-| [`FilterRequestMethod()`](../src/server/functions/create.ts:50) | Middleware that filters by HTTP method (default: POST only). |
+| Function | Module | Description |
+|---|---|---|
+| [`createHttpsCallFunction()`](../src/server/functions/create/https.ts:9) | `create/https` | Creates a Firebase HTTPS Callable function from an endpoint worker. |
+| [`createHttpsRequestFunction()`](../src/server/functions/create/https.ts:23) | `create/https` | Creates a Firebase HTTPS Request function (for webhooks, REST APIs). |
+| [`createScheduledFunction()`](../src/server/functions/create/scheduler.ts:10) | `create/scheduler` | Creates a scheduled (cron) function. |
+| [`createTopicListener()`](../src/server/functions/create/pubsub.ts:10) | `create/pubsub` | Creates a Pub/Sub topic listener. |
+| [`FilterRequestMethod()`](../src/server/functions/create/helpers.ts:21) | `create/helpers` | Middleware that filters by HTTP method (default: POST only). |
+
+For tree-shaking, import directly from the specific module (e.g., `@zajno/common-firebase/server/functions/create/https`). The barrel export at [`create.ts`](../src/server/functions/create.ts) re-exports everything for convenience.
 
 ---
 
