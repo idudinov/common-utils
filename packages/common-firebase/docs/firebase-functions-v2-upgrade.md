@@ -96,9 +96,9 @@ None of these expose raw Firebase v1 types to consumers.
 
 ## Files to Change
 
-Only **4 source files** need modification. **0 public interfaces change.**
+**5 source files** need modification. **0 public interfaces change.**
 
-### 1. [`src/functions/interface.ts`](../src/functions/interface.ts) — Low effort
+### 1. [`src/functions/interface.ts`](../src/functions/interface.ts)
 
 ```ts
 // BEFORE
@@ -111,13 +111,18 @@ export type EndpointSettings = Pick<HttpsOptions, 'memory' | 'timeoutSeconds' | 
 // Note: failurePolicy dropped — was never applicable to HTTPS callables
 ```
 
-### 2. [`src/server/functions/create.ts`](../src/server/functions/create.ts) — High effort
+### 2. [`src/server/functions/create.ts`](../src/server/functions/create.ts)
 
-Rewrite all 4 factory functions from builder pattern to v2 options-first pattern:
+Rewrite all 4 factory functions from builder pattern to v2 options-first pattern. Also update the exported type aliases that reference v1-specific types.
 
 ```ts
 // BEFORE
 import * as functions from 'firebase-functions/v1';
+
+export type RequestEndpointFunction<TRes = any> = (req: functions.https.Request, resp: functions.Response<TRes>) => void | Promise<void>;
+export type ScheduledFunction = ((context: functions.EventContext) => PromiseOrT<any>);
+export type PubSubTopicListener = (message: functions.pubsub.Message, context: functions.EventContext) => PromiseOrT<any>;
+export type SchedulerOptions = { timeZone?: string, runtime?: functions.RuntimeOptions };
 
 function getBaseBuilder(runtimeOptions) {
     return functions.runWith({ ...GlobalRuntimeOptions.value, ...runtimeOptions });
@@ -131,9 +136,16 @@ export function createHttpsCallFunction(worker, options) {
 }
 
 // AFTER
-import { onCall, onRequest, type HttpsOptions } from 'firebase-functions/v2/https';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { onMessagePublished } from 'firebase-functions/v2/pubsub';
+import { onCall, onRequest, type HttpsOptions, type Request } from 'firebase-functions/v2/https';
+import { onSchedule, type ScheduleEvent } from 'firebase-functions/v2/scheduler';
+import { onMessagePublished, type Message } from 'firebase-functions/v2/pubsub';
+import type { Response } from 'express';
+
+// Updated exported types — consumers of these types get v2 equivalents
+export type RequestEndpointFunction<TRes = any> = (req: Request, resp: Response<TRes>) => void | Promise<void>;
+export type ScheduledFunction = ((event: ScheduleEvent) => PromiseOrT<any>);
+export type PubSubTopicListener = (message: Message, event: CloudEvent<MessagePublishedData>) => PromiseOrT<any>;
+export type SchedulerOptions = { timeZone?: string, runtime?: HttpsOptions };
 
 function mergeOptions(runtimeOptions?: HttpsOptions | null): HttpsOptions {
     return { ...GlobalRuntimeOptions.value, ...runtimeOptions };
@@ -142,6 +154,7 @@ function mergeOptions(runtimeOptions?: HttpsOptions | null): HttpsOptions {
 export function createHttpsCallFunction(worker, options) {
     return onCall(mergeOptions(options), (request) => {
         // v2 CallableRequest has same .auth, .rawRequest as v1 CallableContext
+        // but also has .data — we pass request as context, request.data as data
         const eCtx = request as EndpointContext;
         return worker(request.data, eCtx);
     });
@@ -167,7 +180,11 @@ export function createTopicListener(topicName, listener, options) {
 }
 ```
 
-### 3. [`src/server/functions/interface.ts`](../src/server/functions/interface.ts) — High effort
+> **Note on `RequestEndpointFunction`:** In v2, `onRequest` uses `Request` from `firebase-functions/v2/https` (Express-compatible) and `Response` from `express`. The `(req, res)` shape is the same, but the import paths change.
+
+> **Note on `PubSubTopicListener`:** In v2, `event.data.message` is a `Message` from `firebase-functions/v2/pubsub`, not v1's `pubsub.Message`. The `.json` property exists on both, so the actual usage in [`pubsub/index.ts`](../src/server/pubsub/index.ts:62) (`message.json as TData`) works unchanged.
+
+### 3. [`src/server/functions/interface.ts`](../src/server/functions/interface.ts)
 
 ```ts
 // BEFORE
@@ -179,12 +196,39 @@ export type FirebaseEndpointRunnable = FirebaseEndpoint & functions.Runnable<any
 // AFTER
 import type { CallableRequest, HttpsFunction } from 'firebase-functions/v2/https';
 // CallableRequest has .auth, .rawRequest, .app, .instanceIdToken — same as CallableContext
+// It also adds .acceptsStreaming (harmless — passes through EndpointContext intersection)
 export type BaseFunctionContext = Omit<CallableRequest<any>, 'data'>;
 export type FirebaseEndpoint = HttpsFunction;
 export type FirebaseEndpointRunnable = FirebaseEndpoint; // v2 doesn't have Runnable
 ```
 
-### 4. [`src/server/pubsub/index.ts`](../src/server/pubsub/index.ts) — Medium effort
+> **Note on `BaseFunctionContext`:** v1 `CallableContext` has `{auth, rawRequest, instanceIdToken, app}`. v2 `CallableRequest<T>` has those same fields plus `data` and `acceptsStreaming`. Using `Omit<CallableRequest<any>, 'data'>` keeps the same shape consumers expect, with `acceptsStreaming` as a harmless addition that passes through the `EndpointContext` intersection type.
+
+### 4. [`src/server/functions/loader.ts`](../src/server/functions/loader.ts)
+
+This file uses `functions.RuntimeOptions` and `functions.HttpsFunction` as parameter and return types in public function signatures. These must be updated to v2 equivalents.
+
+```ts
+// BEFORE
+import type * as functions from 'firebase-functions/v1';
+// ...
+export function createAsyncHttpsRequestFunction<TRes = any>(
+    workerLoader: () => Promise<RequestEndpointFunction<TRes>>,
+    options: functions.RuntimeOptions | null = null,
+): functions.HttpsFunction {
+
+// AFTER
+import type { HttpsOptions, HttpsFunction } from 'firebase-functions/v2/https';
+// ...
+export function createAsyncHttpsRequestFunction<TRes = any>(
+    workerLoader: () => Promise<RequestEndpointFunction<TRes>>,
+    options: HttpsOptions | null = null,
+): HttpsFunction {
+```
+
+> **Note:** The rest of `loader.ts` (async init loaders, `wrapLoaderFunction`, etc.) uses only library-defined types and needs no changes.
+
+### 5. [`src/server/pubsub/index.ts`](../src/server/pubsub/index.ts)
 
 ```ts
 // BEFORE
@@ -209,7 +253,6 @@ private topicCloudFunctions: Record<string, CloudFunction<any>> = {};
 - [`server/logger.ts`](../src/server/logger.ts) — imports from root (compatible)
 - All `client/` code — no server-side Firebase imports
 - All `functions/` definitions — Firebase-agnostic (except `interface.ts`)
-- [`server/functions/loader.ts`](../src/server/functions/loader.ts) — type-only imports, follows interface.ts types
 
 ---
 
@@ -220,18 +263,33 @@ v2 functions support **concurrency** (multiple requests per instance). The middl
 - The chain is built at deploy time and is read-only during execution
 - Each invocation gets its own `HandlerContext` object (created in [`FunctionFactory.createEndpointHandler()`](../src/server/functions/factory.ts:49))
 
-**⚠️ Note:** The [`_chainLocked`](../src/server/functions/middleware.ts:50) flag in `Middleware.execute()` is instance-level, not invocation-level. With v2 concurrency, two concurrent requests on the same `FunctionFactory` could conflict on this flag. However, this is a guard against modifying the chain during execution (not a mutex), and since the chain is fully built before the first request, this would only trigger if someone calls `.use()` during a request handler — which is already an error. Still, consider removing or making this check invocation-scoped.
+**⚠️ Action required:** The [`_chainLocked`](../src/server/functions/middleware.ts:38) flag in [`Middleware.execute()`](../src/server/functions/middleware.ts:47) is instance-level, not invocation-level. With v2 concurrency, two concurrent requests on the same `FunctionFactory` could race on this boolean. While it's a guard (not a mutex) and only fires if `.use()` is called during execution (already a bug), it should be fixed for correctness:
+
+```ts
+// Option A: Remove the lock entirely (the chain is immutable after first request)
+// Option B: Make it invocation-scoped via a local variable in execute()
+public async execute(arg: TArg, endpointContext: EndpointContext<TContext>): Promise<TResult | null> {
+    let chain = this._chain;
+    // Remove this._chainLocked — not needed if chain is built before first request
+    // ...
+}
+```
+
+Recommendation: **Option A** — remove `_chainLocked` and `_checkChainLocked()` entirely. The chain is fully built at deploy time before any request arrives. The lock was a development-time safety net that becomes a concurrency hazard in v2.
 
 ---
 
 ## Versioning
 
-This migration can be done as a **minor version bump** since the public API surface remains unchanged. However, a **major version bump** is recommended because:
+This ships as **`4.4.0`** (minor bump). Breaking changes are permitted under minor versions for this package per project convention. Notable breaking changes for awareness:
 
-1. `EndpointSettings.failurePolicy` is removed (technically a breaking type change)
+1. `EndpointSettings.failurePolicy` is removed (was never applicable to HTTPS callables)
 2. `FirebaseEndpointRunnable` type changes (no longer includes `Runnable<any>`)
 3. v2 concurrency is a behavioral change at runtime
-4. Consumers who directly import from `firebase-functions/v1` in their own code alongside this library may face conflicts
+4. Exported types in `create.ts` change (`ScheduledFunction`, `PubSubTopicListener`, `SchedulerOptions`)
+5. `loader.ts` public function signatures change (`RuntimeOptions` → `HttpsOptions`)
+
+With ~zero live projects using functions, this is low-risk.
 
 ---
 
@@ -249,220 +307,53 @@ This migration can be done as a **minor version bump** since the public API surf
 
 ---
 
-## Dual-Version Support: Letting Consumers Choose v1 or v2
+## Implementation Plan
 
-Since the v1→v2 difference is isolated to a thin adapter layer, it's possible to let consumers select which Firebase Functions version they use. Here are the approaches, from simplest to most flexible.
+### Step order
 
-### Approach A: Separate Export Paths
-
-Expose both versions as separate subpath exports. The shared middleware/factory code stays common; only the "create" and "types" layer is duplicated.
-
-**File structure:**
-
-```
-src/server/functions/
-├── interface.ts          # shared types (EndpointContext, EndpointHandler, etc.)
-├── middleware.ts          # shared (no Firebase imports)
-├── factory.ts             # shared (no Firebase imports)
-├── composite.ts           # shared (no Firebase imports)
-├── helpers.ts             # shared (no Firebase imports)
-├── loader.ts              # shared (uses types from interface.ts)
-├── v1/
-│   ├── create.ts          # v1 builder pattern (functions.runWith().https.onCall)
-│   ├── types.ts           # v1-specific types (CallableContext, HttpsFunction, Runnable)
-│   └── index.ts           # re-exports shared + v1-specific
-├── v2/
-│   ├── create.ts          # v2 options-first (onCall, onRequest, onSchedule)
-│   ├── types.ts           # v2-specific types (CallableRequest, CallableFunction)
-│   └── index.ts           # re-exports shared + v2-specific
-└── index.ts               # default export (could point to v1 or v2)
+```mermaid
+graph TD
+    A[1. src/functions/interface.ts<br/>Drop failurePolicy, use HttpsOptions] --> B
+    B[2. src/server/functions/interface.ts<br/>CallableRequest, drop Runnable] --> C
+    C[3. src/server/functions/create.ts<br/>Builder pattern to options-first<br/>Update exported type aliases] --> D
+    D[4. src/server/functions/loader.ts<br/>Fix RuntimeOptions/HttpsFunction refs] --> E
+    E[5. src/server/pubsub/index.ts<br/>CloudFunction type + Message type] --> F
+    F[6. src/server/functions/middleware.ts<br/>Remove _chainLocked for v2 concurrency] --> G
+    G[7. Build + type-check<br/>Verify no regressions] --> H
+    H[8. Bump to 4.4.0<br/>Update CHANGELOG + README]
 ```
 
-**package.json exports:**
+### Checklist
 
-```json
-{
-  "exports": {
-    "./server/functions":    "./src/server/functions/index.ts",
-    "./server/functions/v1": "./src/server/functions/v1/index.ts",
-    "./server/functions/v2": "./src/server/functions/v2/index.ts"
-  }
-}
-```
-
-**Consumer usage:**
-
-```ts
-// Consumer chooses v1
-import { FunctionFactory, createHttpsCallFunction } from '@zajno/common-firebase/server/functions/v1';
-
-// Consumer chooses v2
-import { FunctionFactory, createHttpsCallFunction } from '@zajno/common-firebase/server/functions/v2';
-```
-
-**Pros:**
-- Clean separation, no runtime overhead
-- Tree-shaking friendly — unused version is not bundled
-- Consumers explicitly opt in
-- Both versions can coexist in the same project (mixed migration)
-
-**Cons:**
-- Some code duplication in the `create.ts` / `types.ts` files
-- Need to maintain two adapter layers
-- The default `./server/functions` export needs a decision (v1 for backward compat, v2 as new default?)
+- [ ] Update [`src/functions/interface.ts`](../src/functions/interface.ts) — `RuntimeOptions` → `HttpsOptions`, drop `failurePolicy`
+- [ ] Update [`src/server/functions/interface.ts`](../src/server/functions/interface.ts) — `CallableContext` → `CallableRequest`, `HttpsFunction` from v2, drop `Runnable`
+- [ ] Rewrite [`src/server/functions/create.ts`](../src/server/functions/create.ts) — v2 options-first pattern, update all exported type aliases
+- [ ] Update [`src/server/functions/loader.ts`](../src/server/functions/loader.ts) — `functions.RuntimeOptions` → `HttpsOptions`, `functions.HttpsFunction` → `HttpsFunction` from v2
+- [ ] Update [`src/server/pubsub/index.ts`](../src/server/pubsub/index.ts) — `CloudFunction` from v2, drop `pubsub.Message` type param
+- [ ] Remove `_chainLocked` / `_checkChainLocked()` from [`src/server/functions/middleware.ts`](../src/server/functions/middleware.ts) for v2 concurrency safety
+- [ ] Verify build passes with `tsc --noEmit`
+- [ ] Run existing tests
+- [ ] Bump version to `4.4.0` in [`package.json`](../package.json)
+- [ ] Update [`README.md`](../README.md) — change "functions (v1)" references to v2
 
 ---
 
-### Approach B: Runtime Adapter Injection
+## Decision: No Dual-Version Support
 
-Define an abstract adapter interface and let consumers inject the v1 or v2 implementation at initialization time.
+The original analysis explored three approaches (A/B/C) for letting consumers choose between v1 and v2. **Decision: skip dual-version support.** Rationale:
 
-**Adapter interface:**
+1. **~Zero live projects** use the functions layer — there's no migration burden
+2. **Semver handles this** — consumers needing v1 pin `@zajno/common-firebase@^4`
+3. **v1 is effectively deprecated** by Google — no new features, all docs/tooling default to v2
+4. **No new project should use v1** — v2 is strictly superior in every dimension
+5. **The adapter layer adds complexity** for a migration path nobody needs — YAGNI
 
-```ts
-// src/server/functions/adapter.ts
-export interface IFirebaseFunctionsAdapter {
-    createCallable<TData, TResult>(
-        options: EndpointSettings | null,
-        handler: (data: TData, context: BaseFunctionContext) => Promise<TResult>,
-    ): FirebaseEndpoint;
-
-    createRequest<TRes>(
-        options: EndpointSettings | null,
-        handler: (req: any, res: any) => void | Promise<void>,
-    ): FirebaseEndpoint;
-
-    createScheduled(
-        schedule: string,
-        options: SchedulerOptions | undefined,
-        handler: (context: any) => any,
-    ): any;
-
-    createTopicListener(
-        topicName: string,
-        options: EndpointSettings | null,
-        handler: (message: any, context: any) => any,
-    ): any;
-}
-```
-
-**Pre-built adapters:**
-
-```ts
-// src/server/functions/adapters/v1.ts
-import * as functions from 'firebase-functions/v1';
-export const v1Adapter: IFirebaseFunctionsAdapter = {
-    createCallable(options, handler) {
-        return functions.runWith(options ?? {}).https.onCall(handler);
-    },
-    // ...
-};
-
-// src/server/functions/adapters/v2.ts
-import { onCall, onRequest } from 'firebase-functions/v2/https';
-export const v2Adapter: IFirebaseFunctionsAdapter = {
-    createCallable(options, handler) {
-        return onCall(options ?? {}, (request) => handler(request.data, request));
-    },
-    // ...
-};
-```
-
-**Consumer usage:**
-
-```ts
-import { setFunctionsAdapter } from '@zajno/common-firebase/server/functions';
-import { v2Adapter } from '@zajno/common-firebase/server/functions/adapters/v2';
-
-// Call once at startup
-setFunctionsAdapter(v2Adapter);
-```
-
-**Pros:**
-- Single import path for consumers
-- Easy to swap at runtime (useful for testing)
-- No code duplication in the shared layer
-
-**Cons:**
-- Runtime indirection (minor perf cost)
-- Must be called before any function is created — ordering dependency
-- Adapter imports still pull in the specific `firebase-functions/v1` or `v2` module
-- Less tree-shakeable — both adapters exist in the bundle unless carefully structured
-
----
-
-### Approach C: Hybrid (Recommended)
-
-Combine both approaches: use **separate export paths** for the adapter layer, but keep a **shared adapter interface** internally so the factory/middleware code doesn't care which version is active.
-
-**File structure:**
-
-```
-src/server/functions/
-├── adapter.ts             # IFirebaseFunctionsAdapter interface
-├── interface.ts           # shared types (uses adapter for Firebase-specific types)
-├── middleware.ts           # shared
-├── factory.ts             # shared (uses adapter via interface.ts)
-├── composite.ts           # shared
-├── helpers.ts             # shared
-├── loader.ts              # shared
-├── create.ts              # delegates to current adapter
-├── globalSettings.ts      # shared
-├── v1/
-│   ├── adapter.ts         # v1 adapter implementation
-│   └── index.ts           # sets v1 adapter + re-exports everything
-├── v2/
-│   ├── adapter.ts         # v2 adapter implementation
-│   └── index.ts           # sets v2 adapter + re-exports everything
-└── index.ts               # re-exports shared (no adapter set — consumer must use v1/ or v2/)
-```
-
-**Consumer usage:**
-
-```ts
-// Everything from one import — v2 adapter is auto-configured
-import { FunctionFactory, FunctionCompositeFactory } from '@zajno/common-firebase/server/functions/v2';
-
-// Or stick with v1
-import { FunctionFactory, FunctionCompositeFactory } from '@zajno/common-firebase/server/functions/v1';
-```
-
-**Pros:**
-- Clean consumer DX — just change the import path
-- No runtime ordering issues — adapter is set by the module's side effect
-- Shared code is truly shared (no duplication)
-- Tree-shaking works — only the chosen adapter's `firebase-functions/v*` import is pulled in
-- Easy to deprecate v1 later — just mark the export path as deprecated
-
-**Cons:**
-- Module-level side effect (setting the adapter on import) — but this is standard for Firebase itself
-- Slightly more complex internal architecture
-
----
-
-### Dual-Version Recommendation
-
-**Approach C (Hybrid)** is the best fit for this library because:
-
-1. The shared middleware/factory layer is the bulk of the code and shouldn't be duplicated
-2. The adapter layer is tiny (4 functions in `create.ts` + a few type aliases)
-3. Consumers get a clean migration path: change one import path
-4. The library can default `./server/functions` to v1 initially (backward compat), then switch default to v2 in a future major version
-
-### Migration path for consumers
-
-```
-v4.x: ./server/functions → v1 (current)
-v5.0: ./server/functions/v1 and ./server/functions/v2 introduced
-       ./server/functions → v1 (backward compat, deprecated)
-v6.0: ./server/functions → v2 (default switched)
-       ./server/functions/v1 → removed or kept as legacy
-```
+If dual-version support is ever needed in the future, the library's clean separation makes it straightforward to introduce at that point.
 
 ---
 
 ## Summary
 
-The upgrade is **feasible with the same consumer-facing interface**. The library's clean separation between the middleware/context layer and the Firebase SDK layer makes this a contained change affecting only 4 internal files. No consumer handler code, definitions, or middleware chains need modification.
+The upgrade is **feasible with the same consumer-facing interface**. The library's clean separation between the middleware/context layer and the Firebase SDK layer makes this a contained change affecting **5 internal files** plus an optional concurrency fix in `middleware.ts`. No consumer handler code, definitions, or middleware chains need modification.
 
-Dual-version support is achievable via the **hybrid adapter approach** (Approach C), where consumers select v1 or v2 by changing their import path from `@zajno/common-firebase/server/functions/v1` to `@zajno/common-firebase/server/functions/v2`. The shared middleware, factory, composite, and helper code remains identical regardless of which Firebase Functions version is used underneath.
+This ships as `v4.4.0` with v2-only support. The `4.3.x` line remains available for any legacy v1 needs via version pinning.
