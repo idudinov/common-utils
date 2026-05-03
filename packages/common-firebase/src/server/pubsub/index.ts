@@ -1,4 +1,5 @@
-import type { pubsub, CloudFunction } from 'firebase-functions/v1';
+import type { CloudEvent, CloudFunction } from 'firebase-functions/v2/core';
+import type { MessagePublishedData } from 'firebase-functions/v2/pubsub';
 import type { ClientConfig } from '@google-cloud/pubsub';
 import { Event } from '@zajno/common/observing/event';
 import { LazyPromise } from '@zajno/common/lazy/promise';
@@ -6,7 +7,7 @@ import type { AnyObject } from '@zajno/common/types/misc';
 import { LoggerProvider, type ILoggerFactory } from '@zajno/common/logger';
 import { createLazy } from '@zajno/common/lazy';
 import type { EndpointSettings } from '../../functions/interface.js';
-import { createTopicListener } from '../functions/index.js';
+import { createTopicListener } from '../functions/create/pubsub.js';
 
 export namespace PubSub {
 
@@ -20,7 +21,7 @@ export namespace PubSub {
         private isCloudFunctionsInitialized: boolean = false;
         private ErrorHandler: ErrorHandlerFn | null = null;
 
-        private topicCloudFunctions: Record<string, CloudFunction<pubsub.Message>> = {};
+        private topicCloudFunctions: Record<string, CloudFunction<CloudEvent<MessagePublishedData>>> = {};
 
         private readonly _instanceLoader = new LazyPromise(async () => {
             const { PubSub } = await import('@google-cloud/pubsub');

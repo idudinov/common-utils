@@ -1,9 +1,9 @@
 import type { ILogger } from '@zajno/common/logger';
-import * as functions from 'firebase-functions/v1';
+import type { CallableFunction, CallableRequest, HttpsFunction } from 'firebase-functions/v2/https';
 import type { IFunctionDefinitionInfo } from '../../functions/interface.js';
 import type { ObjectOrPrimitive } from '@zajno/common/types';
 
-export type BaseFunctionContext = functions.https.CallableContext;
+export type BaseFunctionContext = Omit<CallableRequest<unknown>, 'data'>;
 
 export type EndpointContext<T = never> = BaseFunctionContext & {
     data?: T;
@@ -11,7 +11,7 @@ export type EndpointContext<T = never> = BaseFunctionContext & {
     readonly requestId: string;
     readonly logger?: ILogger;
     readonly endpoint: IEndpointRuntimeInfo;
-    readonly meta?: any;
+    readonly meta?: unknown;
 };
 
 export type EndpointFunction<T, TOut, TContext extends ObjectOrPrimitive = never> = (data: T, context: EndpointContext<TContext>) => Promise<TOut | null>;
@@ -31,8 +31,8 @@ type OmitSecondParameter<T> = T extends (first: infer F, second: any, ...last: i
 
 export type EndpointHandlerVoid<TArg, TOut, TContext extends ObjectOrPrimitive = never> = OmitSecondParameter<EndpointHandler<TArg, TOut, TContext>>;
 
-export type FirebaseEndpoint = functions.HttpsFunction;
-export type FirebaseEndpointRunnable = FirebaseEndpoint & functions.Runnable<any>;
+export type FirebaseEndpoint = HttpsFunction;
+export type FirebaseEndpointRunnable = CallableFunction<unknown, unknown>;
 
 export interface IFirebaseFunction {
     readonly Definition: IFunctionDefinitionInfo;
@@ -44,15 +44,15 @@ export interface IEndpointRuntimeInfo {
 }
 
 export namespace IFirebaseFunction {
-    export function addTo(this: void, target: any, namespaceLevel: boolean, ...funcs: IFirebaseFunction[]) {
+    export function addTo(this: void, target: Record<string, any>, namespaceLevel: boolean, ...funcs: IFirebaseFunction[]) {
         if (!target) {
             return;
         }
 
         funcs.forEach(f => {
-            let tt: any = target;
+            let tt: Record<string, any> = target;
             if (namespaceLevel) {
-                tt = target[f.Definition.Namespace];
+                tt = target[f.Definition.Namespace] as Record<string, any>;
                 if (!tt) {
                     tt = { };
                     target[f.Definition.Namespace] = tt;

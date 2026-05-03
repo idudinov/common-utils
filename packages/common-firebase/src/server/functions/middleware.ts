@@ -35,7 +35,8 @@ export interface IMiddlewareChild<TArg, TResult, TContext extends ObjectOrPrimit
 
 export class Middleware<TArg, TResult, TContext extends ObjectOrPrimitive = never> implements IMiddleware<TArg, TResult, TContext> {
     private _chain: EndpointHandler<TArg, TResult, TContext> | null = null;
-    private _chainLocked = false;
+    /** Tracks the number of concurrent executions. Prevents chain mutation while any execution is in progress. */
+    private _activeExecutions = 0;
 
     public get isEmpty() { return this._chain == null; }
     public get currentChain() { return this._chain; }
@@ -45,9 +46,9 @@ export class Middleware<TArg, TResult, TContext extends ObjectOrPrimitive = neve
     }
 
     public async execute(arg: TArg, endpointContext: EndpointContext<TContext>): Promise<TResult | null> {
-        // finally compose chain w/ hooks
+        // compose chain w/ hooks
         let chain = this._chain;
-        this._chainLocked = true;
+        this._activeExecutions++;
 
         try {
             // add hooks
@@ -73,7 +74,7 @@ export class Middleware<TArg, TResult, TContext extends ObjectOrPrimitive = neve
             // assume output will be populated
             return ctx.output;
         } finally {
-            this._chainLocked = false;
+            this._activeExecutions--;
         }
     }
 
@@ -116,7 +117,7 @@ export class Middleware<TArg, TResult, TContext extends ObjectOrPrimitive = neve
     }
 
     private _checkChainLocked() {
-        if (this._chainLocked) {
+        if (this._activeExecutions > 0) {
             throw AppHttpError.Internal('Middleware chain is locked because is currently running. Updating the chain is not allowed during execution.');
         }
     }

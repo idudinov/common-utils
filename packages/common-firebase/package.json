@@ -1,6 +1,6 @@
 {
   "name": "@zajno/common-firebase",
-  "version": "4.3.8",
+  "version": "4.4.0",
   "description": "Zajno's re-usable Firebase utilities for JS/TS projects",
   "private": false,
   "type": "module",
@@ -34,14 +34,14 @@
     }
   },
   "devDependencies": {
-    "@firebase/app-types": "^0.9.3",
-    "@google-cloud/pubsub": "^5.2.2",
+    "@firebase/app-types": "^0.9.4",
+    "@google-cloud/pubsub": "^5.3.0",
     "@zajno/common": "*",
     "@zajno/common-mobx": "*",
     "@zajno/eslint-config": "*",
-    "firebase": "^12.8.0",
-    "firebase-admin": "^12.7.0",
-    "firebase-functions": "^7.0.5",
+    "firebase": "^12.12.1",
+    "firebase-admin": "^13.8.0",
+    "firebase-functions": "^7.2.5",
     "firebase-functions-test": "^3.4.1",
     "mobx": "^6.15.0"
   },
@@ -89,6 +89,7 @@
     "./database/realtime": "./src/database/realtime/index.ts",
     "./functions": "./src/functions/index.ts",
     "./server/functions": "./src/server/functions/index.ts",
+    "./server/functions/create": "./src/server/functions/create/index.ts",
     "./server/pubsub": "./src/server/pubsub/index.ts"
   }
 }
