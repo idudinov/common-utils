@@ -6,7 +6,8 @@ export type Processor<T1, T2> = (a: T1) => T2 | Promise<T2>;
 type FunctionResult<T> = Promise<{ data: T }>;
 export type FunctionType<TArg, TResult> = (data: TArg) => FunctionResult<TResult>;
 
-export type EndpointSettings = Pick<GlobalOptions, 'memory' | 'timeoutSeconds' | 'minInstances'>;
+/** Runtime settings for Firebase Cloud Functions (v2). Extends GlobalOptions to allow full configuration. */
+export type EndpointSettings = Partial<GlobalOptions>;
 
 export interface IFunctionDefinitionInfo {
     readonly Name: string;

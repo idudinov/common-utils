@@ -1,5 +1,5 @@
-import type { HttpsOptions } from 'firebase-functions/v2/https';
 import type { HttpsFunction } from 'firebase-functions/v2/https';
+import type { EndpointSettings } from '../../functions/interface.js';
 import type { IMiddleware } from './middleware.js';
 import { LazyPromise } from '@zajno/common/lazy/promise';
 import type { EndpointHandler } from './interface.js';
@@ -70,7 +70,7 @@ export function wrapRequestFunction(loader: () => Promise<RequestEndpointFunctio
     return wrapLoaderFunction(loader);
 }
 
-export function createAsyncHttpsRequestFunction<TRes = any>(workerLoader: () => Promise<RequestEndpointFunction<TRes>>, options: HttpsOptions | null = null): HttpsFunction {
+export function createAsyncHttpsRequestFunction<TRes = any>(workerLoader: () => Promise<RequestEndpointFunction<TRes>>, options: EndpointSettings | null = null): HttpsFunction {
     return createHttpsRequestFunction(
         wrapRequestFunction(workerLoader),
         options,

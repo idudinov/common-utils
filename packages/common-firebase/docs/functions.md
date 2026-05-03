@@ -420,7 +420,7 @@ The [`create/`](../src/server/functions/create/) folder provides low-level facto
 | [`createTopicListener()`](../src/server/functions/create/pubsub.ts:10) | `create/pubsub` | Creates a Pub/Sub topic listener. |
 | [`FilterRequestMethod()`](../src/server/functions/create/helpers.ts:21) | `create/helpers` | Middleware that filters by HTTP method (default: POST only). |
 
-For tree-shaking, import directly from the specific module (e.g., `@zajno/common-firebase/server/functions/create/https`). The barrel export at [`create.ts`](../src/server/functions/create.ts) re-exports everything for convenience.
+Import from `@zajno/common-firebase/server/functions/create` or via the main `@zajno/common-firebase/server/functions` barrel. Internal imports between library modules use the specific files (`create/https.ts`, `create/scheduler.ts`, `create/pubsub.ts`) for tree-shaking — consumers don't need to worry about this as `FunctionFactory` already imports only what it needs.
 
 ---
 
