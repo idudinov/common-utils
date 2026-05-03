@@ -11,7 +11,7 @@ export const OnFactoryCreated: IEvent<FunctionFactoryHook> = _onFactoryCreated;
 
 export type FunctionFactoryHook = {
     readonly definition: IFunctionDefinitionInfo;
-    addMeta(meta: any): void;
+    addMeta(meta: unknown): void;
 };
 
 export interface IFirebaseFunctionsProvider {
@@ -20,7 +20,7 @@ export interface IFirebaseFunctionsProvider {
 
 export class FunctionFactory<TArg, TResult> extends Loggable implements IFunctionWorker<TArg, TResult> {
 
-    private _meta: any = null;
+    private _meta: unknown = null;
 
     constructor(
         readonly functions: IFirebaseFunctionsProvider,
