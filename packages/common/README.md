@@ -67,7 +67,7 @@ Tests are written with Vitest, coverage is (kinda) tracked with Coveralls. Test 
 
 ## Usage
 
-Sources are in TypeScript, shipped as ESM-only modules targeted on `ES2022` (as of `3.0.0`; CJS is no longer published). Requires Node `>=20`.
+Sources are in TypeScript, shipped as ESM-only modules targeted on `ES2022` (as of `3.1.0`; CJS is no longer published). Requires Node `>=20`.
 
 ### Distribution
 
