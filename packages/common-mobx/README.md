@@ -22,7 +22,7 @@ All runtime dependencies are peer.
 
 ## Usage
 
-ESM-only as of `2.0.0` (no CJS build). Subpath-only imports (no root import) by design, for tree-shaking. Requires Node `>=20`.
+ESM-only as of `2.1.0` (no CJS build). Subpath-only imports (no root import) by design, for tree-shaking. Requires Node `>=20`.
 
 Install:
 
