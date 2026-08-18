@@ -1,4 +1,4 @@
-import type { Disposer } from '@zajno/common/functions/disposer.js';
+import type { Disposer } from '@zajno/common/functions/disposer';
 import { Lazy, type ILazyPromise, type ILazyPromiseExtension, type LazyFactory } from '@zajno/common/lazy';
 import { LazyPromise } from '@zajno/common/lazy/promise';
 import { extendObject } from '@zajno/common/structures/extendObject';

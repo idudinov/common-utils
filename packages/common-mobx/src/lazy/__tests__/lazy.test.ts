@@ -4,7 +4,7 @@ import { reaction } from 'mobx';
 
 import { Disposer } from '@zajno/common/functions/disposer';
 import { createCacheExtension } from '@zajno/common/lazy/extensions';
-import type { IKeyedStorageSync } from '@zajno/common/storage/types.js';
+import type { IKeyedStorageSync } from '@zajno/common/storage/types';
 import { NumberModel } from '../../viewModels/NumberModel.js';
 import { createObservingExtension, LazyObservable, LazyPromiseObservable } from '../observable.js';
 

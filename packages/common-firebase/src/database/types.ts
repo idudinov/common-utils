@@ -1,4 +1,4 @@
-import type { Nullable } from '@zajno/common/types/misc.js';
+import type { Nullable } from '@zajno/common/types/misc';
 
 export type UnsubscribeSnapshot = () => void;
 
