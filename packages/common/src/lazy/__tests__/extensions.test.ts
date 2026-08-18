@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LazyPromise } from '../promise.js';
-import { createCacheExtension } from '../extensions.js';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { IKeyedStorage, IKeyedStorageSync } from '../../storage/types.js';
+import { createCacheExtension } from '../extensions.js';
+import { LazyPromise } from '../promise.js';
 
 describe('createCacheExtension', () => {
     describe('with async storage', () => {
@@ -160,8 +160,8 @@ describe('createCacheExtension', () => {
 
     describe('with sync storage', () => {
         let mockStorage: IKeyedStorageSync<number>;
-        let getValueSpy: ReturnType<typeof vi.fn>;
-        let setValueSpy: ReturnType<typeof vi.fn>;
+        let getValueSpy: Mock<() => number | null>;
+        let setValueSpy: Mock<(value: number) => void>;
 
         beforeEach(() => {
             getValueSpy = vi.fn();

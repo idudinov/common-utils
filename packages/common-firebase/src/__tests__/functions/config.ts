@@ -1,4 +1,5 @@
 import FFT from 'firebase-functions-test';
+import type { CallableRequest } from 'firebase-functions/v2/https';
 import type { FunctionFactory } from '../../server/functions/index.js';
 import type { AnyObject, ObjectOrPrimitive } from '@zajno/common/types/misc';
 
@@ -10,7 +11,17 @@ export type EndpointTestContext = {
 export type EndpointTestFunction<T, TOut> = (data: Partial<T>, context?: EndpointTestContext) => Promise<TOut>;
 
 export function wrapEndpoint<A extends AnyObject, R extends AnyObject, C extends ObjectOrPrimitive>(fn: FunctionFactory<A, R, C>) {
-    return FFTest.wrap(fn.Endpoint) as EndpointTestFunction<A, R>;
+    const wrapped = FFTest.wrap(fn.Endpoint);
+    // v2 WrappedV2CallableFunction takes a CallableRequest, adapt to our test interface
+    return ((data: Partial<A>, context?: EndpointTestContext) => {
+        const request = {
+            data,
+            auth: context?.auth,
+            rawRequest: {} as any,
+            acceptsStreaming: false,
+        } as CallableRequest<Partial<A>>;
+        return wrapped(request);
+    }) as EndpointTestFunction<A, R>;
 }
 
 type Nested<T, K extends keyof T> = T[K] extends never ? never : Required<NonNullable<T[K]>>;

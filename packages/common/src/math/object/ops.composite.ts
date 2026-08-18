@@ -13,7 +13,7 @@ export class CompositeObjectOps<T extends AnyObject> implements IObjectOps<T> {
         this.innerOps = Object.entries(innerOps)
             .map(pair => {
                 const result: OpsPair<T> = {
-                    key: pair[0] as TKey,
+                    key: pair[0],
                     ops: pair[1] as IObjectOps<T[TKey]>,
                 };
                 return result;

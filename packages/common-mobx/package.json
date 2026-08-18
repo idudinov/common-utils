@@ -37,7 +37,7 @@
   "devDependencies": {
     "@zajno/common": "*",
     "@zajno/eslint-config": "*",
-    "mobx": "^6.13.7"
+    "mobx": "^6.16.1"
   },
   "peerDependencies": {
     "@zajno/common": "~2.8.12",

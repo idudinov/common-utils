@@ -1,4 +1,4 @@
-import type { RuntimeOptions } from 'firebase-functions/v1';
+import type { GlobalOptions } from 'firebase-functions/v2/options';
 
 export type Converter<T1, T2> = (a: T1) => T2;
 export type Processor<T1, T2> = (a: T1) => T2 | Promise<T2>;
@@ -6,7 +6,8 @@ export type Processor<T1, T2> = (a: T1) => T2 | Promise<T2>;
 type FunctionResult<T> = Promise<{ data: T }>;
 export type FunctionType<TArg, TResult> = (data: TArg) => FunctionResult<TResult>;
 
-export type EndpointSettings = Pick<RuntimeOptions, 'memory' | 'timeoutSeconds' | 'minInstances' | 'failurePolicy'>;
+/** Runtime settings for Firebase Cloud Functions (v2). Extends GlobalOptions to allow full configuration. */
+export type EndpointSettings = Partial<GlobalOptions>;
 
 export interface IFunctionDefinitionInfo {
     readonly Name: string;

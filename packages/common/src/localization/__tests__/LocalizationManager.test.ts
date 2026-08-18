@@ -20,7 +20,7 @@ describe('LocalizationManager', () => {
     type Locales = keyof typeof dataSource;
 
     it('correctly initialized', () => {
-        const manager = new LocalizationManager(dataSource, 'en' as Locales, EnStrings);
+        const manager = new LocalizationManager(dataSource, 'en', EnStrings);
 
         expect(manager.Locale).toBe('en');
         expect(manager.Current).toEqual(EnStrings);
@@ -30,7 +30,7 @@ describe('LocalizationManager', () => {
         const manager = new LocalizationManager({
             ...dataSource,
             en: async () => EnStrings,
-        }, 'en' as Locales);
+        }, 'en');
 
         expect(manager.Locale).toBe('en');
         expect(manager.Current).toBe(null);
@@ -42,7 +42,7 @@ describe('LocalizationManager', () => {
     });
 
     it('correctly switches locales', async () => {
-        const manager = new LocalizationManager(dataSource, 'en' as Locales, EnStrings);
+        const manager = new LocalizationManager<Locales, typeof EnStrings>(dataSource, 'en', EnStrings);
 
         const onChanged = vi.fn();
         const off = manager.localeUpdated.on(onChanged);
@@ -75,33 +75,33 @@ describe('LocalizationManager', () => {
     });
 
     it('throws on unknown locale', async () => {
-        const manager = new LocalizationManager(dataSource, 'en' as Locales, EnStrings);
+        const manager = new LocalizationManager(dataSource, 'en', EnStrings);
 
-        await expect(manager.useLocale('unknown' as Locales)).rejects.toThrowError('LocalizationManager: No localization data for locale "unknown"');
+        await expect(manager.useLocale('unknown' as any)).rejects.toThrow('LocalizationManager: No localization data for locale "unknown"');
         expect(manager.Locale).toBe('en');
 
-        await expect(manager.useLocale('de')).rejects.toThrowError('LocalizationManager: No localization data for locale "de"');
+        await expect(manager.useLocale('de' as any)).rejects.toThrow('LocalizationManager: No localization data for locale "de"');
         expect(manager.Locale).toBe('en');
     });
 
     it('throws on loader error', async () => {
-        const manager = new LocalizationManager(
+        const manager = new LocalizationManager<Locales, typeof EnStrings>(
             {
                 ...dataSource,
                 'de': async () => {
                     throw new Error('Loader error');
                 },
             },
-            'en' as Locales,
+            'en',
         );
 
-        await expect(manager.useLocale('de')).rejects.toThrowError('LocalizationManager: Failed to load localization data for locale "de"');
+        await expect(manager.useLocale('de')).rejects.toThrow('LocalizationManager: Failed to load localization data for locale "de"');
         expect(manager.Locale).toBe('en');
         expect(manager.Current).toEqual(EnStrings);
     });
 
     it('recovers from loader error w/ race condition', async () => {
-        const manager = new LocalizationManager(
+        const manager = new LocalizationManager<Locales, typeof EnStrings>(
             {
                 ...dataSource,
                 'de': async () => {
@@ -109,7 +109,7 @@ describe('LocalizationManager', () => {
                     throw new Error('Loader error');
                 },
             },
-            'en' as Locales,
+            'en',
         );
 
         await expect(manager.firstInitialized).resolves.not.toThrow();

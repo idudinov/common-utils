@@ -1,14 +1,17 @@
-import type * as functions from 'firebase-functions/v1';
+import type { HttpsFunction } from 'firebase-functions/v2/https';
+import type { EndpointSettings } from '../../functions/interface.js';
 import type { IMiddleware } from './middleware.js';
 import { LazyPromise } from '@zajno/common/lazy/promise';
 import type { EndpointHandler } from './interface.js';
 import {
     createHttpsRequestFunction,
-    createScheduledFunction,
     type RequestEndpointFunction,
+} from './create/https.js';
+import {
+    createScheduledFunction,
     type ScheduledFunction,
     type SchedulerOptions,
-} from './create.js';
+} from './create/scheduler.js';
 import type { ICompositionMiddleware, MiddlewaresMap } from './composite.js';
 import type { CompositeEndpointInfo, EndpointArg, EndpointResult } from '../../functions/composite.js';
 import type { ObjectOrPrimitive } from '@zajno/common/types/misc';
@@ -67,7 +70,7 @@ export function wrapRequestFunction(loader: () => Promise<RequestEndpointFunctio
     return wrapLoaderFunction(loader);
 }
 
-export function createAsyncHttpsRequestFunction<TRes = any>(workerLoader: () => Promise<RequestEndpointFunction<TRes>>, options: functions.RuntimeOptions | null = null): functions.HttpsFunction {
+export function createAsyncHttpsRequestFunction<TRes = any>(workerLoader: () => Promise<RequestEndpointFunction<TRes>>, options: EndpointSettings | null = null): HttpsFunction {
     return createHttpsRequestFunction(
         wrapRequestFunction(workerLoader),
         options,

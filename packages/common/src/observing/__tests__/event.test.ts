@@ -141,9 +141,8 @@ describe('Event', () => {
     it('with logger', () => {
         const e = new Event<number>();
 
-        const handlerThrows = vi.fn(() => {
-            throw new Error('test');
-        });
+        const spy = vi.fn((_d?: unknown) => { throw new Error('test'); });
+        const handlerThrows = (d: number | undefined) => spy(d);
         e.on(handlerThrows);
 
         const mockLogger = {
@@ -165,19 +164,19 @@ describe('Event', () => {
         // trigger the event and and check logger.error was called
         e.trigger(1);
         expect(mockLogger.error).toHaveBeenCalledTimes(1);
-        expect(mockLogger.error).toHaveBeenCalledWith('type:number Handler spy thrown an exception: ', new Error('test'));
-        expect(handlerThrows).toHaveBeenCalledTimes(1);
-        expect(handlerThrows).toHaveBeenCalledWith(1);
-        expect(handlerThrows).toHaveBeenCalledBefore(mockLogger.error);
+        expect(mockLogger.error).toHaveBeenCalledWith('type:number Handler handlerThrows thrown an exception: ', new Error('test'));
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith(1);
+        expect(spy).toHaveBeenCalledBefore(mockLogger.error);
 
         mockLogger.error.mockReset();
-        handlerThrows.mockReset();
+        spy.mockReset();
 
         e.setLogger(null);
         e.trigger(2);
         expect(mockLogger.error).not.toHaveBeenCalled();
-        expect(handlerThrows).toHaveBeenCalledTimes(1);
-        expect(handlerThrows).toHaveBeenCalledWith(2);
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith(2);
 
     });
 });

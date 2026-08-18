@@ -70,7 +70,7 @@ export function createSingleton<T extends IDisposable>(
              * This method allows to replace the internal factory function, and while using the same ID and underlying instance storage, the new instances will be of the new type.
              */
             static Extend<TExtended extends T>(Child: ICtor<TExtended>) {
-                _factory = id => new Child(id) as InstanceType<typeof Ctor>;
+                _factory = id => new Child(id);
                 return this as unknown as StaticSingleton<TExtended>;
             }
         },

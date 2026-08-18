@@ -6,7 +6,7 @@ import { setFieldValue } from '../../../database/firestore/helpers.js';
 
 
 export function IdentConverter<T extends IdentAny>(): FirestoreDataConverter<T> {
-    return IdentConverter.Default as FirestoreDataConverter<T>;
+    return IdentConverter.Default;
 }
 
 export namespace IdentConverter {
@@ -33,7 +33,7 @@ export function TimestampConverter<T extends object>(...keys: (keyof T)[]): Fire
                     m[key] = Timestamp.fromMillis(v) as any;
                 }
             });
-            return m as UpdateDiff<T>;
+            return m;
         },
         fromFirestore(snapshot: DocumentSnapshot, options?: any, prev?: T) {
             const d = prev || snapshot.data(options) as T;

@@ -1,12 +1,11 @@
 import { createLazy } from '@zajno/common/lazy/light';
 import Admin from './admin.js';
-import type { storage as Storage } from 'firebase-admin';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 import { LoggerProvider } from '@zajno/common/logger';
 
-export type StorageType = Storage.Storage;
-export type BucketType = ReturnType<StorageType['bucket']>;
+export type BucketType = ReturnType<Storage['bucket']>;
 
-const storage: StorageType = Admin.storage();
+const storage: Storage = getStorage(Admin);
 const StorageBucket = createLazy(() => {
     const bucketName = storage.bucket().name;
     const bucket: ReturnType<typeof storage.bucket> = storage.bucket(bucketName);
@@ -16,7 +15,7 @@ const StorageBucket = createLazy(() => {
 export const Logging = new LoggerProvider();
 
 export const StorageContext = {
-    get storage(): StorageType { return storage; },
+    get storage(): Storage { return storage; },
     get bucket(): BucketType { return StorageBucket.value; },
 };
 

@@ -7,7 +7,7 @@ import {
     type FirebaseEndpointRunnable,
     IFirebaseFunction,
 } from './interface.js';
-import { createHttpsCallFunction } from './create.js';
+import { createHttpsCallFunction } from './create/https.js';
 import { Middleware } from './middleware.js';
 import { tryConvertToHttpError } from '../utils/LogicErrorAdapter.js';
 import { badRandomString } from '@zajno/common/math/calc';

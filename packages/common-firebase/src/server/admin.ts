@@ -1,7 +1,8 @@
 import * as admin from 'firebase-admin';
+import { cert } from 'firebase-admin/app';
 
 export const ServiceAccountPath = process.env.GOOGLE_SERVICE_ACCOUNT;
-export const ServiceAccountCredential = ServiceAccountPath && admin.credential.cert(ServiceAccountPath);
+export const ServiceAccountCredential = ServiceAccountPath && cert(ServiceAccountPath);
 
 const Admin = ServiceAccountCredential
     ? admin.initializeApp({

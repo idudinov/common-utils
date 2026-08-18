@@ -15,15 +15,21 @@
         "fix-esm-paths": "fix-esm-import-path packages/*/src"
     },
     "devDependencies": {
-        "@faker-js/faker": "^9.9.0",
-        "@types/node": "^24.0.0",
-        "@vitest/coverage-istanbul": "^3.2.4",
-        "cpy-cli": "^5.0.0",
-        "fast-check": "^3.23.2",
+        "@faker-js/faker": "^10.6.0",
+        "@types/node": "^24.13.3",
+        "@vitest/coverage-istanbul": "^4.1.10",
+        "cpy-cli": "^7.0.0",
+        "fast-check": "^4.9.0",
         "fix-esm-import-path": "^1.10.3",
-        "jest-extended": "^6.0.0",
+        "jest-extended": "^7.0.0",
         "rimraf": "^6.0.1",
         "scripty": "^2.1.1",
-        "vitest": "^3.2.4"
+        "vitest": "^4.1.10"
+    },
+    "allowScripts": {
+        "@firebase/util@1.15.2": true,
+        "esbuild@0.27.7": true,
+        "fsevents@2.3.3": true,
+        "protobufjs@7.6.5": true
     }
 }

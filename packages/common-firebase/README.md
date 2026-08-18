@@ -26,7 +26,7 @@ See usage & distribution notes from `@zajno/common`'s [README](../common/README.
     * [Composite functions](./docs/functions.md#composite-functions) – abstraction for defining multiple logic endpoints on a single Firebase Function.
 
 * [Server-side helpers](./src/server/) – for Firebase Functions
-    * [Functions Wrapper](./docs/functions.md#functionfactory--server-side-endpoint-construction): construct functions (v1) from Endpoint definitions, with [`Middlewares`](./docs/functions.md#middleware-system) for code reuse and better readability.
+    * [Functions Wrapper](./docs/functions.md#functionfactory--server-side-endpoint-construction): construct functions (v2) from Endpoint definitions, with [`Middlewares`](./docs/functions.md#middleware-system) for code reuse and better readability.
     * [Composite Factory](./docs/functions.md#functioncompositefactory--server-side-composite-handling): server-side handler for composite endpoints.
     * [Async Loaders](./docs/functions.md#async-loaders): lazy-load function handlers for cold-start optimization.
     * [Pubsub helpers](./docs/functions.md#pubsub-manager) – for Firebase Pub/Sub topics.

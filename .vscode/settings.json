@@ -3,5 +3,14 @@
     "js/ts.preferences.quoteStyle": "single",
     "files.insertFinalNewline": true,
     "files.trimFinalNewlines": true,
-    "files.trimTrailingWhitespace": true
+    "files.trimTrailingWhitespace": true,
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+        "tsconfig.json": "tsconfig.*.json, jsconfig.*.json, env.d.ts",
+        "jsconfig.json": "tsconfig.*.json, jsconfig.*.json, env.d.ts",
+        "vite.config.*": "jsconfig*, vitest.config.*, cypress.config.*, playwright.config.*",
+        ".gitignore": ".gitignore, .gitattributes",
+        "package.json": "package-lock.json",
+        "tailwind.config.*": "tailwind.*.ts, tailwind.*.js, postcss.config.*",
+    },
 }

@@ -19,7 +19,7 @@ describe('math/object/ops.composite', () => {
         expect(ops.isEmpty(null)).toBe(true);
         expect(ops.isEmpty(undefined)).toBe(true);
         expect(ops.isEmpty({} as Struct)).toBe(true);
-        expect(ops.isEmpty({ child: {} as ChildStruct })).toBe(true);
+        expect(ops.isEmpty({ child: {} })).toBe(true);
         expect(ops.isEmpty({ child: { a: 0, b: 0 } })).toBe(true);
         expect(ops.isEmpty({ child: { a: 1, b: 0 } })).toBe(false);
         expect(ops.isEmpty({ child: { a: 0, b: 1 } })).toBe(false);
@@ -31,8 +31,8 @@ describe('math/object/ops.composite', () => {
         expect(ops.clone(undefined)).toEqual({ child: { a: 0, b: 0 } });
         expect(ops.clone({} as Struct)).toEqual({ child: { a: 0, b: 0 } });
         expect(ops.clone({ child: { a: 1, b: 2 } })).toEqual({ child: { a: 1, b: 2 } });
-        expect(ops.clone({ child: { a: 1, b: undefined! as number } })).toEqual({ child: { a: 1, b: 0 } });
-        expect(ops.clone({ child: { a: null! as number, b: 123 } })).toEqual({ child: { a: 0, b: 123 } });
+        expect(ops.clone({ child: { a: 1, b: undefined! } })).toEqual({ child: { a: 1, b: 0 } });
+        expect(ops.clone({ child: { a: null!, b: 123 } })).toEqual({ child: { a: 0, b: 123 } });
 
         // Verify it creates a new object
         const original = { child: { a: 1, b: 2 } };
@@ -97,7 +97,7 @@ describe('math/object/ops.composite', () => {
 
         // Assign undefined child - should not change anything
         const target2b: Struct = { child: { a: 5, b: 6 } };
-        ops.assign(target2b, {} as Struct);
+        ops.assign(target2b, {});
         expect(target2b).toEqual({ child: { a: 5, b: 6 } });
 
         // Assign partial values

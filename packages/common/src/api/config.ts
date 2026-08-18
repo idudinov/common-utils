@@ -44,13 +44,13 @@ export class EndpointsPathsConfig implements IEndpointsPathsConfig {
         pathArgs: IEndpointInfo.ExtractPath<T>,
         prefix: PrefixOptions = true,
     ) {
-        const path = endpoint.path ?? (Path.Empty as Path.IBuilder);
+        const path = endpoint.path ?? Path.Empty;
 
         return path.build(pathArgs || undefined, { addStart: this.getPrefix(prefix) });
     }
 
     public getTemplate<T extends IEndpointInfo>(endpoint: T, prefix: PrefixOptions = true) {
-        const path = endpoint.path ?? (Path.Empty as Path.IBuilder);
+        const path = endpoint.path ?? Path.Empty;
 
         return path.template(this.templateArgPrefix, { addStart: this.getPrefix(prefix) });
     }
