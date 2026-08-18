@@ -40,7 +40,7 @@
     "mobx": "^6.16.1"
   },
   "peerDependencies": {
-    "@zajno/common": "^3",
+    "@zajno/common": "^3.1",
     "mobx": "^6.13"
   },
   "files": [
