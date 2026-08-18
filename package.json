@@ -21,14 +21,13 @@
         "@faker-js/faker": "^10.6.0",
         "@types/node": "^24.13.3",
         "@vitest/coverage-istanbul": "^4.1.10",
-        "cpy-cli": "^7.0.0",
         "fast-check": "^4.9.0",
         "fix-esm-import-path": "^1.10.3",
         "jest-extended": "^7.0.0",
         "publint": "^0.3.23",
         "rimraf": "^6.0.1",
-        "scripty": "^2.1.1",
-        "vitest": "^4.1.10"
+        "vitest": "^4.1.10",
+        "yalc": "^1.0.0-pre.53"
     },
     "allowScripts": {
         "@firebase/util@1.15.2": true,

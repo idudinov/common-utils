@@ -20,25 +20,19 @@
   },
   "homepage": "https://github.com/idudinov/common-utils/tree/main/packages/common-web#readme",
   "scripts": {
-    "clean": "scripty",
-    "dev": "scripty",
-    "build": "scripty",
-    "build:clean": "scripty",
-    "build:w": "scripty",
-    "publish:local": "scripty",
-    "publish:from-dist": "scripty",
-    "build:full": "scripty",
-    "bundle": "scripty",
-    "update-exports": "scripty",
-    "lint": "scripty",
+    "clean": "task clean",
+    "dev": "task dev",
+    "build": "task build",
+    "build:clean": "task build:clean",
+    "build:full": "task build:full",
+    "bundle": "task bundle",
+    "update-exports": "task update-exports",
+    "lint": "task lint",
     "test": "echo \"No tests yet...\"; exit 0",
-    "check": "scripty",
-    "check:publish": "scripty"
-  },
-  "config": {
-    "scripty": {
-      "path": "../scripts"
-    }
+    "check": "task check",
+    "check:publish": "task check:publish",
+    "publish:local": "task publish:local",
+    "publish:from-dist": "task publish:from-dist"
   },
   "devDependencies": {
     "@zajno/common": "*",

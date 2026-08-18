@@ -8,7 +8,6 @@ export default [
             '**/dist/**/*',
             '.eslintrc.js',
             '**/vitest.config.mts',
-            'packages/scripts/**/*',
         ],
     },
 ];

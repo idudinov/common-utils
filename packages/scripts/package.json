@@ -1,0 +1,13 @@
+{
+  "name": "@zajno/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "task": "./cli.ts"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint *.ts"
+  }
+}
