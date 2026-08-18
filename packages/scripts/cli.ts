@@ -65,16 +65,16 @@ function isKnownTaskName(name: string): boolean {
     return !/\s/.test(name) && (name in commands || name in ACTIONS || name in composites || name in aliases);
 }
 
-function runStep(step: Step): number {
+async function runStep(step: Step): Promise<number> {
     if (typeof step === 'string') {
         return isKnownTaskName(step) ? runTask(step) : spawnCommand(step);
     }
     return spawnCommand(step.cmd, { cwd: step.cwd });
 }
 
-function runSequence(steps: Step[]): number {
+async function runSequence(steps: Step[]): Promise<number> {
     for (const step of steps) {
-        const code = runStep(step);
+        const code = await runStep(step);
         if (code !== 0) {
             return code;
         }
@@ -82,12 +82,12 @@ function runSequence(steps: Step[]): number {
     return 0;
 }
 
-function runTask(name: string, extraArgs: string[] = []): number {
+async function runTask(name: string, extraArgs: string[] = []): Promise<number> {
     const resolvedName = aliases[name] ?? name;
 
     if (ACTIONS[resolvedName]) {
-        ACTIONS[resolvedName]();
-        return 0;
+        await ACTIONS[resolvedName]();
+        return Number(process.exitCode ?? 0);
     }
 
     if (commands[resolvedName]) {
@@ -109,4 +109,4 @@ if (!taskName) {
     process.exit(1);
 }
 
-process.exit(runTask(taskName, extraArgs));
+process.exit(await runTask(taskName, extraArgs));

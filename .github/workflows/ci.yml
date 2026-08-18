@@ -20,6 +20,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -43,3 +45,8 @@ jobs:
 
       - name: Check publish
         run: npm run check:publish
+
+      - name: Check versions
+        run: npm run check:versions
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
