@@ -9,3 +9,7 @@ A monorepo for Zajno's internal tools and utilities.
 1. [@zajno/common-firebase](./packages/common-firebase)
 1. [@zajno/common-web](./packages/common-web)
 1. [@zajno/eslint-config](./packages/eslint-config)
+
+## Shared task runner
+
+[`packages/scripts`](./packages/scripts) is a private, unpublished workspace exposing a single `task` bin (backed by TypeScript run directly via Node's built-in type stripping). Each leaf package's `scripts` block proxies to it, e.g. `"build": "task build"`, so the shell command for every task lives once in [`packages/scripts/tasks.json`](./packages/scripts/tasks.json) instead of being duplicated per package.

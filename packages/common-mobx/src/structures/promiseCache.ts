@@ -2,7 +2,7 @@ import { observable, makeObservable, action } from 'mobx';
 import { PromiseCache } from '@zajno/common/structures/promiseCache';
 import type { PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from '@zajno/common/structures/promiseCache';
 import { NumberModel } from '../viewModels/NumberModel.js';
-import type { IMapModel, IValueModel } from '@zajno/common/models/types.js';
+import type { IMapModel, IValueModel } from '@zajno/common/models/types';
 
 export { DeferredGetter } from '@zajno/common/structures/promiseCache';
 export type { InvalidationConfig, InvalidationCallback, ErrorCallback, PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from '@zajno/common/structures/promiseCache';

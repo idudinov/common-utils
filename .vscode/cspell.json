@@ -9,7 +9,6 @@
     "datex",
     "Firestore",
     "Pluggable",
-    "scripty",
     "timespan"
   ]
 }

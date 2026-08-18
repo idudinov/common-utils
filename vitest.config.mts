@@ -25,6 +25,7 @@ export default mergeConfig(baseConfig, defineConfig({
       './packages/common/vitest.config.mts',
       './packages/common-firebase/vitest.config.mts',
       './packages/common-mobx/vitest.config.mts',
+      './packages/common-web/vitest.config.mts',
     ],
   },
 }));

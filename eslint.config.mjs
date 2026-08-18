@@ -8,7 +8,16 @@ export default [
             '**/dist/**/*',
             '.eslintrc.js',
             '**/vitest.config.mts',
-            'packages/scripts/**/*',
         ],
+    },
+    {
+        rules: {
+            'no-restricted-imports': ['error', {
+                patterns: [{
+                    group: ['@zajno/*/**/*.js', '@zajno/*/*.js'],
+                    message: '@zajno/* subpath imports must be extensionless (exports maps have no .js suffix).',
+                }],
+            }],
+        },
     },
 ];

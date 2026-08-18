@@ -1,0 +1,33 @@
+{
+  "commands": {
+    "clean": "rimraf ./dist --glob *.tsbuildinfo",
+    "build": "tsc -b tsconfig.dist.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src/**/*.ts?(x)",
+    "test": "vitest run --coverage",
+    "dev": "tsc -b --watch"
+  },
+  "aliases": {
+    "build:w": "dev"
+  },
+  "composites": {
+    "build:clean": ["clean", "build"],
+    "build:full": ["build:clean", "lint", "test"],
+    "check:publish": [
+      "build:clean",
+      "bundle",
+      "publint dist",
+      "attw --pack dist --profile esm-only"
+    ],
+    "publish:local": [
+      "build:full",
+      "bundle",
+      { "cmd": "yalc push --replace --update --sig", "cwd": "dist" }
+    ],
+    "publish:from-dist": [
+      "build:full",
+      "bundle",
+      { "cmd": "npm publish", "cwd": "dist" }
+    ]
+  }
+}

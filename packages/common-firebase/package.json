@@ -1,12 +1,17 @@
 {
   "name": "@zajno/common-firebase",
-  "version": "4.4.0",
+  "version": "5.0.0",
   "description": "Zajno's re-usable Firebase utilities for JS/TS projects",
   "private": false,
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/idudinov/common-utils.git"
+    "url": "git+https://github.com/idudinov/common-utils.git",
+    "directory": "packages/common-firebase"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
   },
   "author": "Zajno <hello@zajno.com> (https://zajno.com)",
   "license": "MIT",
@@ -15,23 +20,19 @@
   },
   "homepage": "https://github.com/idudinov/common-utils/tree/main/packages/common-firebase#readme",
   "scripts": {
-    "clean": "scripty",
-    "dev": "scripty",
-    "build": "scripty",
-    "build:clean": "scripty",
-    "build:w": "scripty",
-    "publish:local": "scripty",
-    "publish:from-dist": "scripty",
-    "build:full": "scripty",
-    "bundle": "scripty",
-    "update-exports": "scripty",
-    "lint": "scripty",
-    "test": "scripty"
-  },
-  "config": {
-    "scripty": {
-      "path": "../scripts"
-    }
+    "clean": "task clean",
+    "dev": "task dev",
+    "build": "task build",
+    "build:clean": "task build:clean",
+    "build:full": "task build:full",
+    "bundle": "task bundle",
+    "update-exports": "task update-exports",
+    "lint": "task lint",
+    "test": "task test",
+    "check": "task check",
+    "check:publish": "task check:publish",
+    "publish:local": "task publish:local",
+    "publish:from-dist": "task publish:from-dist"
   },
   "devDependencies": {
     "@firebase/app-types": "^0.9.5",
@@ -48,13 +49,12 @@
   },
   "peerDependencies": {
     "@google-cloud/pubsub": "^5.3 || ^6.0.1",
-    "@zajno/common": "~2.8.12",
-    "@zajno/common-mobx": "~1.7.7",
+    "@zajno/common": "^3",
+    "@zajno/common-mobx": "^2",
     "firebase": "^11.6 || ^12.8",
     "firebase-admin": "^12.7 || ^13.6 || ^14.2",
     "firebase-functions": "^7.3",
-    "mobx": "^6.15",
-    "tslib": "^2.8"
+    "mobx": "^6.15"
   },
   "peerDependenciesMeta": {
     "@google-cloud/pubsub": {
@@ -71,10 +71,10 @@
     }
   },
   "files": [
+    "*",
     "LICENSE",
     "!.DS_Store",
-    "!*.tsbuildinfo",
-    "*"
+    "!*.tsbuildinfo"
   ],
   "publishConfig": {
     "access": "public"

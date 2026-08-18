@@ -1,3 +1,4 @@
+import type { CallerResponse } from '../call.types.js';
 import type { ApiEndpoint, IEndpointInfo } from '../endpoint.js';
 import type { CallerHooks } from '../hooks.js';
 
@@ -42,7 +43,7 @@ export namespace IEndpointHooks {
             },
             afterResponse: (config, response) => {
                 if (guard(config._meta.api) && config._meta.api.hooks?.afterResponse) {
-                    return config._meta.api.hooks.afterResponse(config, response) as CallerHooks.HookReturnType;
+                    return config._meta.api.hooks.afterResponse(config, response as CallerResponse<any>) as CallerHooks.HookReturnType;
                 }
             },
         };

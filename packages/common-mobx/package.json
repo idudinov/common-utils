@@ -1,12 +1,17 @@
 {
   "name": "@zajno/common-mobx",
-  "version": "1.7.7",
+  "version": "2.0.0",
   "description": "Zajno's re-usable utilities for JS/TS projects using MobX",
   "private": false,
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/idudinov/common-utils.git"
+    "url": "git+https://github.com/idudinov/common-utils.git",
+    "directory": "packages/common-mobx"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
   },
   "author": "Zajno <hello@zajno.com> (https://zajno.com)",
   "license": "MIT",
@@ -15,24 +20,19 @@
   },
   "homepage": "https://github.com/idudinov/common-utils/tree/main/packages/common-mobx#readme",
   "scripts": {
-    "clean": "scripty",
-    "dev": "scripty",
-    "build": "scripty",
-    "build:clean": "scripty",
-    "build:copy": "scripty",
-    "build:w": "scripty",
-    "publish:local": "scripty",
-    "publish:from-dist": "scripty",
-    "build:full": "scripty",
-    "bundle": "scripty",
-    "update-exports": "scripty",
-    "lint": "scripty",
-    "test": "scripty"
-  },
-  "config": {
-    "scripty": {
-      "path": "../scripts"
-    }
+    "clean": "task clean",
+    "dev": "task dev",
+    "build": "task build",
+    "build:clean": "task build:clean",
+    "build:full": "task build:full",
+    "bundle": "task bundle",
+    "update-exports": "task update-exports",
+    "lint": "task lint",
+    "test": "task test",
+    "check": "task check",
+    "check:publish": "task check:publish",
+    "publish:local": "task publish:local",
+    "publish:from-dist": "task publish:from-dist"
   },
   "devDependencies": {
     "@zajno/common": "*",
@@ -40,9 +40,8 @@
     "mobx": "^6.16.1"
   },
   "peerDependencies": {
-    "@zajno/common": "~2.8.12",
-    "mobx": "^6.13",
-    "tslib": "^2.8"
+    "@zajno/common": "^3",
+    "mobx": "^6.13"
   },
   "files": [
     "*",
