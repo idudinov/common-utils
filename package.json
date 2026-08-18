@@ -13,6 +13,7 @@
         "update-exports": "time npm run update-exports --workspaces --if-present",
         "publish:local:all": "time npm run publish:local --workspaces --if-present",
         "check:publish": "time npm run check:publish --workspaces --if-present",
+        "check:versions": "node packages/scripts/cli.ts check:versions",
         "all": "time (npm i && npm run update-exports && npm run build && npm run lint && npm run test)",
         "fix-esm-paths": "fix-esm-import-path packages/*/src"
     },

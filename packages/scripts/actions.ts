@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 
+import { checkVersions } from './check-versions.ts';
 import { generateExports } from './generate-exports.ts';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
@@ -25,7 +26,8 @@ function updateExports() {
 }
 
 /** In-process task implementations that aren't a single external binary invocation. */
-export const ACTIONS: Record<string, () => void> = {
+export const ACTIONS: Record<string, () => void | Promise<void>> = {
     bundle,
     'update-exports': updateExports,
+    'check:versions': checkVersions,
 };
