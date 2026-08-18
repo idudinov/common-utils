@@ -15,7 +15,7 @@ import {
 import { wrapAsync } from '@zajno/common/functions/safe';
 import type { Nullable } from '@zajno/common/types';
 
-export type DocumentSnapshotConverterCallback<T> = (item: DocumentSnapshot<T>) => Nullable<T>;
+export type DocumentSnapshotConverterCallback<T> = (item: DocumentSnapshot<T>) => T | null;
 
 export function documentSnapshot<T extends IdentAny>(doc: DocumentReference<T>): Promise<Nullable<T>>;
 
@@ -43,7 +43,7 @@ export async function documentSnapshot<T extends IdentAny>(
 ): Promise<Nullable<T> | UnsubscribeSnapshot> {
     logDocCount(doc, cb != null);
 
-    const convertSnapshot = (d: DocumentSnapshot<T>): Nullable<T> => {
+    const convertSnapshot = (d: DocumentSnapshot<T>): T | null => {
         if (!d.exists()) {
             return null;
         }
