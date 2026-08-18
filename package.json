@@ -11,6 +11,7 @@
         "test": "time npm run test --workspaces --if-present",
         "update-exports": "time npm run update-exports --workspaces --if-present",
         "publish:local:all": "time npm run publish:local --workspaces --if-present",
+        "check:publish": "time npm run check:publish --workspaces --if-present",
         "all": "time (npm i && npm run update-exports && npm run build && npm run lint && npm run test)",
         "fix-esm-paths": "fix-esm-import-path packages/*/src"
     },
@@ -22,6 +23,7 @@
         "fast-check": "^4.9.0",
         "fix-esm-import-path": "^1.10.3",
         "jest-extended": "^7.0.0",
+        "publint": "^0.3.23",
         "rimraf": "^6.0.1",
         "scripty": "^2.1.1",
         "vitest": "^4.1.10"

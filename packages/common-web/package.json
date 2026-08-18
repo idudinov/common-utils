@@ -6,7 +6,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/idudinov/common-utils.git"
+    "url": "git+https://github.com/idudinov/common-utils.git",
+    "directory": "packages/common-web"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
   },
   "author": "Zajno <hello@zajno.com> (https://zajno.com)",
   "license": "MIT",
@@ -26,7 +31,8 @@
     "bundle": "scripty",
     "update-exports": "scripty",
     "lint": "scripty",
-    "test": "echo \"No tests yet...\"; exit 0"
+    "test": "echo \"No tests yet...\"; exit 0",
+    "check:publish": "scripty"
   },
   "config": {
     "scripty": {
@@ -45,7 +51,8 @@
     "*",
     "LICENSE",
     "!.DS_Store",
-    "!*.tsbuildinfo"
+    "!*.tsbuildinfo",
+    "!ref"
   ],
   "publishConfig": {
     "access": "public"

@@ -6,7 +6,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/idudinov/common-utils.git"
+    "url": "git+https://github.com/idudinov/common-utils.git",
+    "directory": "packages/common-mobx"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
   },
   "author": "Zajno <hello@zajno.com> (https://zajno.com)",
   "license": "MIT",
@@ -19,7 +24,6 @@
     "dev": "scripty",
     "build": "scripty",
     "build:clean": "scripty",
-    "build:copy": "scripty",
     "build:w": "scripty",
     "publish:local": "scripty",
     "publish:from-dist": "scripty",
@@ -27,7 +31,8 @@
     "bundle": "scripty",
     "update-exports": "scripty",
     "lint": "scripty",
-    "test": "scripty"
+    "test": "scripty",
+    "check:publish": "scripty"
   },
   "config": {
     "scripty": {
@@ -40,7 +45,7 @@
     "mobx": "^6.16.1"
   },
   "peerDependencies": {
-    "@zajno/common": "~2.8.12",
+    "@zajno/common": "^2.8.12",
     "mobx": "^6.13",
     "tslib": "^2.8"
   },
@@ -48,7 +53,8 @@
     "*",
     "LICENSE",
     "!.DS_Store",
-    "!*.tsbuildinfo"
+    "!*.tsbuildinfo",
+    "!ref"
   ],
   "publishConfig": {
     "access": "public"

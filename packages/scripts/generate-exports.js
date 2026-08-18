@@ -49,6 +49,11 @@ function updatePackageJsonWithExports() {
                 "default": "./esm/*.js"
             }
         };
+
+        // Strip dev-only fields from the published package.json
+        delete packageJson.devDependencies;
+        delete packageJson.scripts;
+        delete packageJson.config;
     } else {
         packageJson.exports = {
             "./*": "./src/*.ts"
