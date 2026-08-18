@@ -17,7 +17,6 @@ export default tseslint.config(
             },
             parserOptions: {
                 projectService: true,
-                project: true,
             },
         },
 

@@ -73,8 +73,8 @@ describe('math/object/ops', () => {
         expect(ops.clone(undefined)).toEqual(empty);
         expect(ops.clone({} as Struct)).toEqual(empty);
         expect(ops.clone({ a: 1, b: 2 })).toEqual({ a: 1, b: 2 });
-        expect(ops.clone({ a: 1, b: undefined! as number })).toEqual({ a: 1, b: 0 });
-        expect(ops.clone({ a: null! as number, b: 123 })).toEqual({ a: 0, b: 123 });
+        expect(ops.clone({ a: 1, b: undefined! })).toEqual({ a: 1, b: 0 });
+        expect(ops.clone({ a: null!, b: 123 })).toEqual({ a: 0, b: 123 });
 
         expect(ops.isValid(null)).toBe(false);
         expect(ops.isValid(undefined)).toBe(false);
@@ -102,22 +102,22 @@ describe('math/object/ops', () => {
 
         // strip: false/null
         expect(ops.strip({ a: 1, b: 2, c: 'test' } as Struct)).toEqual({ a: 1, b: 2 });
-        expect(ops.strip({ a: 1, b: null! as number }, false)).toEqual({ a: 1, b: null });
-        expect(ops.strip({ a: 1, b: undefined! as number }, false)).toEqual({ a: 1, b: undefined });
-        expect(ops.strip({ a: 1, b: null! as number }, 'null')).toEqual({ a: 1 });
-        expect(ops.strip({ a: 1, b: undefined! as number }, 'null')).toEqual({ a: 1 });
+        expect(ops.strip({ a: 1, b: null! }, false)).toEqual({ a: 1, b: null });
+        expect(ops.strip({ a: 1, b: undefined! }, false)).toEqual({ a: 1, b: undefined });
+        expect(ops.strip({ a: 1, b: null! }, 'null')).toEqual({ a: 1 });
+        expect(ops.strip({ a: 1, b: undefined! }, 'null')).toEqual({ a: 1 });
 
         expect(ops.strip({ a: 123, b: 456 }, (k, v) => v != null && v % 2 === 0)).toEqual({ a: 123 });
 
         // strip: true
         expect(ops.strip({ a: 1, b: 2 }, true)).toEqual({ a: 1, b: 2 });
-        expect(ops.strip({ a: 1, b: null! as number }, true)).toEqual({ a: 1 });
-        expect(ops.strip({ a: 1, b: undefined! as number }, true)).toEqual({ a: 1 });
+        expect(ops.strip({ a: 1, b: null! }, true)).toEqual({ a: 1 });
+        expect(ops.strip({ a: 1, b: undefined! }, true)).toEqual({ a: 1 });
         expect(ops.strip({ a: 1, b: 0 }, true)).toEqual({ a: 1 });
 
         // strip: falsy
-        expect(ops.strip({ a: 1, b: null! as number }, 'falsy')).toEqual({ a: 1 });
-        expect(ops.strip({ a: 1, b: undefined! as number }, 'falsy')).toEqual({ a: 1 });
+        expect(ops.strip({ a: 1, b: null! }, 'falsy')).toEqual({ a: 1 });
+        expect(ops.strip({ a: 1, b: undefined! }, 'falsy')).toEqual({ a: 1 });
         expect(ops.strip({ a: 1, b: 0 }, 'falsy')).toEqual({ a: 1 });
 
         // toStringData

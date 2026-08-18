@@ -109,9 +109,9 @@ describe('api/formData', () => {
 
         test('uses custom FormData constructor', () => {
             const mockAppend = vi.fn();
-            const MockFormData = vi.fn().mockImplementation(() => ({
-                append: mockAppend,
-            }));
+            const MockFormData = vi.fn(function (this: { append: unknown }) {
+                this.append = mockAppend;
+            });
 
             const serialize = createFormDataSerializer({ FormData: MockFormData as unknown as new () => FormData });
             serialize({ name: 'test' });

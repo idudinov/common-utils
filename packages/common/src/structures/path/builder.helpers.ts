@@ -151,7 +151,7 @@ export function constructDynamic(
         template,
         get args() {
             if (!_args) {
-                _args = params.map(p => p.name) as [];
+                _args = params.map(p => p.name);
             }
             return _args;
         },

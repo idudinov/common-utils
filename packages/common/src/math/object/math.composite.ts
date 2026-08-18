@@ -13,7 +13,7 @@ export class CompositeObjectMath<T extends AnyObject> extends CompositeObjectOps
         super(innerMath);
         this.innerMath = Object.entries(innerMath)
             .map(pair => ({
-                key: pair[0] as string & keyof T,
+                key: pair[0],
                 ops: pair[1] as IObjectMath<T[string & keyof T]>,
             }));
     }

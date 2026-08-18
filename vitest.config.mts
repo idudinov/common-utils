@@ -16,9 +16,6 @@ export const baseConfig = defineConfig({
     setupFiles: setupPath,
     globalSetup: globalSetupPath,
   },
-  esbuild: {
-    target: 'es2022',
-  },
 });
 
 /** Root config adds `test.projects` to discover per-package configs. */

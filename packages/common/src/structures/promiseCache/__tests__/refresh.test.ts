@@ -254,7 +254,7 @@ describe('PromiseCache.refresh', () => {
         // Non-async factory: throw is truly synchronous (before any promise is created)
         const cache = new PromiseCache<string>(((() => {
             throw new Error('sync factory error');
-        }) as () => Promise<string>));
+        })));
 
         const p = cache.get('a');
         await p;
@@ -272,7 +272,7 @@ describe('PromiseCache.refresh', () => {
             counter++;
             if (shouldFail) throw new Error('sync refresh error');
             return Promise.resolve(counter);
-        }) as () => Promise<number>));
+        })));
 
         // Initial successful fetch
         await cache.get('a');

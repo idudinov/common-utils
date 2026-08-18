@@ -21,21 +21,22 @@
     "main": "index.mjs",
     "type": "module",
     "types": "index.d.ts",
+    "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+    },
     "scripts": {
         "publish:local": "yalc push --private --replace --update",
         "test": "cd tests && npm i && npm run test"
     },
     "dependencies": {
-        "@eslint/eslintrc": "^3.3.1",
-        "@eslint/js": "^9.33.0",
-        "@stylistic/eslint-plugin": "^5.2.3",
-        "globals": "^16.3.0",
-        "typescript-eslint": "^8.39.0"
+        "@eslint/js": "^9.39.5",
+        "@stylistic/eslint-plugin": "^5.10.0",
+        "globals": "^17.11.0",
+        "typescript-eslint": "^8.67.0"
     },
     "devDependencies": { },
     "peerDependencies": {
-        "eslint": "^9.33.0",
-        "typescript": "^5"
+        "eslint": "^9.33.0"
     },
     "files": [
         "*.mjs",

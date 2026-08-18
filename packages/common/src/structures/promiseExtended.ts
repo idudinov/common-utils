@@ -259,6 +259,7 @@ function safeGetPromise<T>(cb: () => Promise<T>): Promise<T> {
         }
         return res;
     } catch (err) {
-        return Promise.reject(err as Error);
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        return Promise.reject(err);
     }
 }

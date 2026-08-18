@@ -88,7 +88,7 @@ export class ObjectOps<T extends AnyObject> implements IObjectOps<T> {
 
                 const val = _getValue(v, key);
                 const label = labels[key];
-                results.push([val as number, label as string]);
+                results.push([val as number, label]);
             });
 
         return results;
@@ -98,7 +98,7 @@ export class ObjectOps<T extends AnyObject> implements IObjectOps<T> {
         this.keys.forEach(key => {
             const val = _getValue(other, key);
             if (val !== undefined) {
-                to[key] = val as any;
+                to[key] = val;
             }
         });
 

@@ -75,7 +75,7 @@ export function createFormDataSerializer(options?: FormDataSerializerOptions): I
                 if (typeof Blob !== 'undefined' && serialized instanceof Blob) {
                     fd.append(key, serialized);
                 } else {
-                    fd.append(key, serialized as string);
+                    fd.append(key, serialized);
                 }
             } else {
                 fd.append(key, JSON.stringify(value));
@@ -168,7 +168,7 @@ export namespace IEndpointFormData {
                     ? endpoint.formData
                     : serializer;
 
-                (config as IRequestRawConfig<unknown>).data = ser(config.data as Record<string, unknown>);
+                (config as IRequestRawConfig<unknown>).data = ser(config.data);
             },
         };
     }

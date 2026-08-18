@@ -17,7 +17,7 @@ export function createHttpsCallFunction<T = any, TOut = void>(
         const { data, ...ctx } = request;
         const eCtx = ctx as unknown as EndpointContext;
         return worker(data as T, eCtx);
-    }) as unknown as FirebaseEndpointRunnable;
+    });
 }
 
 export function createHttpsRequestFunction<TRes = any>(worker: RequestEndpointFunction<TRes>, options: EndpointSettings | null = null): HttpsFunction {

@@ -69,7 +69,7 @@ export namespace PubSub {
                     let errors: Error[];
 
                     try {
-                        errors = await _handler.triggerAsync(data) as any[];
+                        errors = await _handler.triggerAsync(data);
                     } catch (e) {
                         logger.value?.error('Failed to execute trigger, error: ', e);
                         errors = [e as Error];
