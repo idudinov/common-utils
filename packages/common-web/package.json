@@ -28,7 +28,7 @@
     "bundle": "task bundle",
     "update-exports": "task update-exports",
     "lint": "task lint",
-    "test": "echo \"No tests yet...\"; exit 0",
+    "test": "task test",
     "check": "task check",
     "check:publish": "task check:publish",
     "publish:local": "task publish:local",
