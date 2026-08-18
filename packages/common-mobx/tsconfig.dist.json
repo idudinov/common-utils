@@ -3,9 +3,9 @@
     "compilerOptions": {
         "composite": true,
         "noEmit": false,
+        "outDir": "dist",
         "rootDir": "src",
         "declaration": true,
-        "outDir": "dist/ref",
     },
     "include": [
         "src"
@@ -16,7 +16,7 @@
     ],
     "references": [
         {
-            "path": "../common/tsconfig.ref.json"
+            "path": "../common/tsconfig.dist.json"
         }
     ],
 }

@@ -67,11 +67,11 @@ Tests are written with Vitest, coverage is (kinda) tracked with Coveralls. Test 
 
 ## Usage
 
-Sources are in TypeScript, shipped as CJS & ESM modules targeted on `ES2022`.
+Sources are in TypeScript, shipped as ESM-only modules targeted on `ES2022` (as of `3.0.0`; CJS is no longer published). Requires Node `>=20`.
 
 ### Distribution
 
-There's no barrel exports, so you can import each module separately. Each `index.ts` file is outlined in generated `package.json`'s `exports` field. Might require `tslib` as a peer dependency.
+There's no barrel/root export by design — subpath-only imports keep the package tree-shakeable. Each `index.ts` file is outlined in generated `package.json`'s `exports` field.
 
 The package does't really use `semver` for now, breaking changes to existing modules can be introduced in minor versions, so it's recommended to use `~` in your `package.json`'s dependencies. New modules can be introduced in minor & patch versions.
 

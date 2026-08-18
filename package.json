@@ -7,6 +7,7 @@
     ],
     "scripts": {
         "build": "time npm run build:clean --workspaces --if-present",
+        "check": "time npm run check --workspaces --if-present",
         "lint": "time npm run lint --workspaces --if-present",
         "test": "time npm run test --workspaces --if-present",
         "update-exports": "time npm run update-exports --workspaces --if-present",
@@ -16,6 +17,7 @@
         "fix-esm-paths": "fix-esm-import-path packages/*/src"
     },
     "devDependencies": {
+        "@arethetypeswrong/cli": "^0.18.5",
         "@faker-js/faker": "^10.6.0",
         "@types/node": "^24.13.3",
         "@vitest/coverage-istanbul": "^4.1.10",

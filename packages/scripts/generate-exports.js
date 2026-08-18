@@ -11,25 +11,13 @@ const FOLDER_IGNORE_PATTERNS = [/__tests__/, /node_modules/];
 // Utility to check if a file exists
 const fileExists = (filePath) => fs.existsSync(filePath);
 
-/** @type {Record<string, { path: string, file: string }} */
-const ExportsStructure = {
-    types: { path: 'types', file: 'index.d.ts' },
-    import: { path: 'esm', file: 'index.js' },
-    require: { path: 'cjs', file: 'index.js' },
-    default: { path: 'cjs', file: 'index.js' }
-};
-const ExportsStructureEntries = Object.entries(ExportsStructure);
 const SrcExport = p => `./src/${p}/index.ts`;
 
 function getExports(relativePath) {
-    return Object.fromEntries(
-        ExportsStructureEntries
-            .map(([key, value]) => [
-                key,
-                // value(relativePath),
-                `./${value.path}/${relativePath}/${value.file}`
-            ])
-    );
+    return {
+        types: `./${relativePath}/index.d.ts`,
+        default: `./${relativePath}/index.js`,
+    };
 }
 
 // Function to update package.json with exports
@@ -43,10 +31,8 @@ function updatePackageJsonWithExports() {
         // Ensure exports field exists and cleaned
         packageJson.exports = {
             "./*": {
-                "types": "./types/*.d.ts",
-                "import": "./esm/*.js",
-                "require": "./cjs/*.js",
-                "default": "./esm/*.js"
+                "types": "./*.d.ts",
+                "default": "./*.js"
             }
         };
 
@@ -107,12 +93,6 @@ function updatePackageJsonWithExports() {
     // Write the updated package.json back to the file
     fs.writeFileSync(PACKAGE_JSON_PATH, JSON.stringify(packageJson, null, 2) + '\n', 'utf8');
     console.log('package.json updated successfully with exports.');
-
-    if (!SRC_MODE) {
-        // additionally, write package.json files to each subfolder with corresponding type
-        fs.writeFileSync(path.resolve(process.cwd(), 'dist/cjs/package.json'), JSON.stringify({ "type": "commonjs" }, null, 2) + '\n', 'utf8');
-        fs.writeFileSync(path.resolve(process.cwd(), 'dist/esm/package.json'), JSON.stringify({ "type": "module" }, null, 2) + '\n', 'utf8');
-    }
 }
 
 // Run the update function

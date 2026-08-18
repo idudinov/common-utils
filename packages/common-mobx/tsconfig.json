@@ -1,8 +1,6 @@
 {
     "extends": "../../tsconfig.json",
     "compilerOptions": {
-        "outDir": "dist",
-        "declarationMap": false,
         "declaration": false,
         "paths": {
             "@zajno/common/*": [
@@ -15,7 +13,7 @@
     ],
     "references": [
         {
-            "path": "../common/tsconfig.ref.json"
+            "path": "../common/tsconfig.dist.json"
         }
     ]
 }

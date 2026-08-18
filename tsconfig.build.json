@@ -1,9 +1,9 @@
 {
     "files": [],
     "references": [
-        { "path": "./packages/common/tsconfig.ref.json" },
-        { "path": "./packages/common-mobx/tsconfig.ref.json" },
-        { "path": "./packages/common-web/tsconfig.ref.json" },
-        { "path": "./packages/common-firebase/tsconfig.ref.json" }
+        { "path": "./packages/common/tsconfig.dist.json" },
+        { "path": "./packages/common-mobx/tsconfig.dist.json" },
+        { "path": "./packages/common-web/tsconfig.dist.json" },
+        { "path": "./packages/common-firebase/tsconfig.dist.json" }
     ]
 }

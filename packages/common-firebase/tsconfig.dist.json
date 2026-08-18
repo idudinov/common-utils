@@ -1,12 +1,11 @@
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
+        "composite": true,
         "noEmit": false,
-        "module": "CommonJS",
-        "moduleResolution": "node",
-        "verbatimModuleSyntax": false,
-        "outDir": "dist/cjs",
+        "outDir": "dist",
         "rootDir": "src",
+        "declaration": true,
     },
     "include": [
         "src"
@@ -17,7 +16,10 @@
     ],
     "references": [
         {
-            "path": "../common/tsconfig.ref.json"
-        }
-    ],
+            "path": "../common/tsconfig.dist.json"
+        },
+        {
+            "path": "../common-mobx/tsconfig.dist.json"
+        },
+    ]
 }

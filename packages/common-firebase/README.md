@@ -6,6 +6,8 @@ Extension for [`@zajno/common`](../common), which adds more tools for developmen
 
 ## Installation
 
+ESM-only as of `5.0.0` (no CJS build). Subpath-only imports (no root import) by design, for tree-shaking. Requires Node `>=22` (forced by `firebase-admin`/`@google-cloud/pubsub` peers).
+
 ```
 npm i @zajno/common-firebase
 ```

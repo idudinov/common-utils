@@ -1,10 +1,8 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "outDir": "dist",
     "lib": ["ESNext", "DOM"],
     "types": [],
-    "declarationMap": false,
     "declaration": false,
     "paths": {
       "@zajno/common/*": ["../common/src/*"]
@@ -15,7 +13,7 @@
   ],
   "references": [
     {
-      "path": "../common/tsconfig.ref.json"
+      "path": "../common/tsconfig.dist.json"
     }
   ]
 }

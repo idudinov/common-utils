@@ -2,11 +2,9 @@
     "compilerOptions": {
         "strict": true,
         "noUnusedLocals": true,
-        "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
         "allowSyntheticDefaultImports": true,
         "skipLibCheck": true,
-        "sourceMap": true,
+        "sourceMap": false,
         "isolatedModules": true,
         "verbatimModuleSyntax": true,
         "esModuleInterop": true,
@@ -17,8 +15,7 @@
         "jsx": "react",
         "allowJs": true,
         "declaration": true,
-        "declarationMap": true,
-        "importHelpers": true,
+        "declarationMap": false,
         "noEmit": true,
         "types": [
             "vitest/globals",
