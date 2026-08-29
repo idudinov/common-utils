@@ -136,7 +136,7 @@ describe('PromiseCache', () => {
 
         const lazy = cache.getLazy(1);
         expect(lazy.currentValue).not.toBeUndefined();
-        expect(lazy.isLoading).toBeNull(); // status cleared by set()
+        expect(lazy.isLoading).toBe(false); // status settled by set()
         await expect(lazy.promise).resolves.toStrictEqual(getRes(1));
     });
 

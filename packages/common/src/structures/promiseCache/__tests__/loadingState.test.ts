@@ -1,5 +1,6 @@
 
 import { setTimeoutAsync } from '../../../async/timeout.js';
+import { LazyPromise } from '../../../lazy/promise.js';
 import { PromiseCache } from '../index.js';
 import { delayedValue } from './helpers.js';
 
@@ -257,5 +258,39 @@ describe('PromiseCache loading state strategy', () => {
         await vi.advanceTimersByTimeAsync(10);
         await p;
         expect(lazy.pendingState).toBeNull();
+    });
+
+    // ─── set() settles the key rather than clearing its status ───────────
+
+    describe('set() reports false (settled), not null', () => {
+
+        test('set() on a never-fetched key settles it: getIsLoading/isLoading false, pendingState null', () => {
+            const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+
+            cache.set('a', 42);
+
+            expect(cache.getIsLoading('a')).toBe(false);
+            expect(cache.getLazy('a').isLoading).toBe(false);
+            expect(cache.getLazy('a').pendingState).toBeNull();
+        });
+
+        test('parity: LazyPromise.setInstance() also reports isLoading false', () => {
+            const lazy = new LazyPromise(async () => delayedValue(10, 1));
+
+            lazy.setInstance(42);
+
+            expect(lazy.isLoading).toBe(false);
+            expect(lazy.pendingState).toBeNull();
+        });
+
+        test('set() then invalidate() goes back to null', () => {
+            const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+
+            cache.set('a', 42);
+            expect(cache.getIsLoading('a')).toBe(false);
+
+            cache.invalidate('a');
+            expect(cache.getIsLoading('a')).toBeNull();
+        });
     });
 });

@@ -166,9 +166,12 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
     refresh(id: K): Promise<T | TInitial> {
         const key = this._pk(id);
 
-        // A load already in flight keeps its classification; otherwise it's derived from cached state.
+        // 'loading'/'refreshing' in flight keep their classification; a passive 'revalidating' is
+        // escalated — an explicit refresh() is a stronger signal. Otherwise derived from cached state.
         const current = this._itemsStatus.get(key);
-        const kind: PendingLoadState = current || (this._itemsCache.has(key) ? 'refreshing' : 'loading');
+        const kind: PendingLoadState = (current === 'loading' || current === 'refreshing')
+            ? current
+            : (this._itemsCache.has(key) ? 'refreshing' : 'loading');
         this.setStatus(key, kind);
 
         const promise = this._doFetchAsync(id, key, true);

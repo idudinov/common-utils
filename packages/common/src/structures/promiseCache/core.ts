@@ -316,7 +316,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     set(id: K, value: T) {
         const key = this._pk(id);
         this._fetchCache.delete(key);
-        this._itemsStatus.delete(key);
+        this.setStatus(key, false);
         this._itemsCache.set(key, value);
         this._timestamps.set(key, Date.now());
         this._errorsMap.delete(key);
