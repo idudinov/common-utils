@@ -223,7 +223,7 @@ describe('LazyPromise', () => {
             expect(l.error).toBeNull();
             await l.promise;
             expect(l.error).toBeInstanceOf(Error);
-            expect(l.errorMessage).toBe('async error message');
+            expect((l.error as Error).message).toBe('async error message');
             expect(l.hasValue).toBeFalse();
             expect(l.value).toBeUndefined();
         }
@@ -235,7 +235,7 @@ describe('LazyPromise', () => {
 
             await l.promise;
             expect(l.error).toBeInstanceOf(Error);
-            expect(l.errorMessage).toBe('async Error object');
+            expect((l.error as Error).message).toBe('async Error object');
         }
 
         {
@@ -246,7 +246,7 @@ describe('LazyPromise', () => {
             expect(l.value).toBe('initial value');
             await l.promise;
             expect(l.error).toBeInstanceOf(Error);
-            expect(l.errorMessage).toBe('error occurred');
+            expect((l.error as Error).message).toBe('error occurred');
             expect(l.value).toBe('initial value');
         }
     });

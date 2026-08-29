@@ -82,7 +82,7 @@ describe('LazyPromise', () => {
 
         expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
         expect(l.error).toBeInstanceOf(Error);
-        expect(l.errorMessage).toBe('Test error');
+        expect((l.error as Error).message).toBe('Test error');
 
         errorListener.mockClear();
 
@@ -138,7 +138,7 @@ describe('LazyPromise', () => {
         await l.refresh();
         expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
         expect(l.error).toBeInstanceOf(Error);
-        expect(l.errorMessage).toBe('Refresh error');
+        expect((l.error as Error).message).toBe('Refresh error');
         expect(l.value).toBe('value-1');
 
         errorListener.mockClear();
@@ -166,7 +166,7 @@ describe('LazyPromise', () => {
 
         await l.promise;
         expect(l.error).toBeInstanceOf(Error);
-        expect(l.errorMessage).toBe('Test error');
+        expect((l.error as Error).message).toBe('Test error');
         expect(errorListener).toHaveBeenCalledWith(expect.any(Error));
 
         errorListener.mockClear();
@@ -406,7 +406,7 @@ describe('LazyPromise', () => {
         try {
             await lazy.promise;
             expect(lazy.error).toBeInstanceOf(Error);
-            expect(lazy.errorMessage).toBe('Fail');
+            expect((lazy.error as Error).message).toBe('Fail');
 
             shouldFail = false;
             ref.setValue(2);

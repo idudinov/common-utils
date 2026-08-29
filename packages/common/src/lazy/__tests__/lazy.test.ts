@@ -108,7 +108,6 @@ describe('Lazy', () => {
             expect(l.hasValue).toBeFalse();
             expect(l.error).toBeInstanceOf(Error);
             expect((l.error as Error).message).toBe('Error object message');
-            expect(l.errorMessage).toBe('Error object message');
         }
 
         {
@@ -118,9 +117,9 @@ describe('Lazy', () => {
 
             expect(l.value).toBeUndefined();
             expect(l.error).toBeInstanceOf(Error);
-            expect(l.errorMessage).toBe('Factory error');
+            expect((l.error as Error).message).toBe('Factory error');
             expect(l.value).toBeUndefined();
-            expect(l.errorMessage).toBe('Factory error');
+            expect((l.error as Error).message).toBe('Factory error');
         }
 
         {
@@ -130,11 +129,10 @@ describe('Lazy', () => {
 
             expect(l.value).toBeUndefined();
             expect(l.error).toBeInstanceOf(Error);
-            expect(l.errorMessage).toBe('error');
+            expect((l.error as Error).message).toBe('error');
 
             l.reset();
             expect(l.error).toBeNull();
-            expect(l.errorMessage).toBeNull();
         }
     });
 });

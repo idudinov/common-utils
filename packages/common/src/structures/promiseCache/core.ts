@@ -1,5 +1,4 @@
 import type { ILazyPromise, IResolvedLazyPromise, PendingLoadState } from '../../lazy/types.js';
-import { formatError } from '../../functions/safe.js';
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
 import type { IMapModel, IValueModel } from '../../models/types.js';
@@ -187,11 +186,6 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
                 return self._itemsCache.has(k) && !self._errorsMap.has(k);
             },
             get error() { return self.getLastError(key); },
-            /** @deprecated Use {@link error} instead. */
-            get errorMessage() {
-                const err = self.getLastError(key);
-                return err != null ? formatError(err) : null;
-            },
             get isLoading() {
                 const v = self.getIsLoading(key);
                 return v === undefined ? null : v;

@@ -237,7 +237,7 @@ describe('createCacheExtension', () => {
 
             expect(storage.setValue).not.toHaveBeenCalled();
             expect(cached.error).toBeInstanceOf(Error);
-            expect(cached.errorMessage).toBe('Network error');
+            expect((cached.error as Error).message).toBe('Network error');
         });
     });
 

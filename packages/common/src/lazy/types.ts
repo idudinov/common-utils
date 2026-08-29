@@ -38,13 +38,6 @@ export interface ILazy<T> {
 
     /** Returns the raw error if loading failed, null otherwise. Does not trigger loading. */
     readonly error: unknown;
-
-    /**
-     * Returns error message (string) if loading failed, null otherwise. Does not trigger loading.
-     * @deprecated Use {@link error} instead — it preserves the original error for typed handling.
-     * If you need a display string, format the error at the presentation layer.
-     */
-    readonly errorMessage: string | null;
 }
 
 /** Represents a lazily asynchronously loaded value with promise-based access. */

@@ -1,4 +1,3 @@
-
 import { LazyPromise } from '../promise.js';
 
 describe('LazyPromise refresh', () => {
@@ -80,7 +79,7 @@ describe('LazyPromise refresh', () => {
         expect(counter).toBe(2);
         expect(result?.value).toBe(1);
         expect(lazy.error).toBeInstanceOf(Error);
-        expect(lazy.errorMessage).toBe('Refresh failed');
+        expect((lazy.error as Error).message).toBe('Refresh failed');
         expect(lazy.value?.value).toBe(1);
 
         shouldFail = false;
@@ -116,7 +115,7 @@ describe('LazyPromise refresh', () => {
         expect(counter).toBe(2);
         expect(result?.value).toBe(1); // stale value preserved
         expect(lazy.error).toBeInstanceOf(Error);
-        expect(lazy.errorMessage).toBe('Sync refresh error');
+        expect((lazy.error as Error).message).toBe('Sync refresh error');
         expect(lazy.value?.value).toBe(1);
 
         // Recovery
@@ -136,7 +135,7 @@ describe('LazyPromise refresh', () => {
 
         await lazy.promise;
         expect(lazy.error).toBeInstanceOf(Error);
-        expect(lazy.errorMessage).toBe('Sync initial error');
+        expect((lazy.error as Error).message).toBe('Sync initial error');
         expect(lazy.hasValue).toBeFalse();
         expect(lazy.value).toBeUndefined();
     });

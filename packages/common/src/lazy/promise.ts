@@ -1,5 +1,4 @@
 import { tryDispose, type IDisposable } from '../functions/disposer.js';
-import { formatError } from '../functions/safe.js';
 import type { IResettableModel } from '../models/types.js';
 import type { IExpireTracker } from '../structures/expire.js';
 import { deriveIsLoading, viewLoadingState } from './loadingState.js';
@@ -86,11 +85,6 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     /** @inheritdoc */
     public hasResolvedValue(): this is LazyPromise<T, TInitial> & IResolvedLazyPromise<T, TInitial> {
         return (this._state === 'resolved' || this._state === 'revalidating' || this._state === 'refreshing') && this._error == null;
-    }
-
-    /** @deprecated Use {@link error} instead. */
-    public get errorMessage(): string | null {
-        return this._error != null ? formatError(this._error) : null;
     }
 
     public get promise(): Promise<T | TInitial> {

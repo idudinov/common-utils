@@ -24,8 +24,6 @@ export function viewLoadingState<T, TI extends T | undefined = undefined>(
         get currentValue() { return source.currentValue; },
         get hasValue() { return source.hasValue; },
         get error() { return source.error; },
-        /** @deprecated Use {@link error} instead. */
-        get errorMessage() { return source.errorMessage; },
         get pendingState() { return source.pendingState; },
         get isLoading() {
             const pending = source.pendingState;

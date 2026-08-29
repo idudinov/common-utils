@@ -41,25 +41,6 @@ describe('createLazy (light)', () => {
         expect(lazy.hasValue).toBe(false);
     });
 
-    it('errorMessage returns formatted string', () => {
-        const lazy = createLazy(() => { throw new Error('oops'); });
-
-        expect(lazy.errorMessage).toBeNull();
-
-        expect(() => lazy.value).toThrow();
-
-        expect(lazy.errorMessage).toBe('oops');
-    });
-
-    it('errorMessage handles Error with custom message', () => {
-        const lazy = createLazy(() => { throw new TypeError('type mismatch'); });
-
-        expect(() => lazy.value).toThrow();
-
-        expect(lazy.error).toBeInstanceOf(TypeError);
-        expect(lazy.errorMessage).toBe('type mismatch');
-    });
-
     it('reset clears value and error', () => {
         const factory = vi.fn(() => 'value');
         const lazy = createLazy(factory);

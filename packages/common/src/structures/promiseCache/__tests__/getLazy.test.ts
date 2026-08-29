@@ -120,18 +120,6 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.isLoading).toBe(false);
     });
 
-    test('errorMessage returns formatted error string', async () => {
-        const cache = new PromiseCache<string>(async () => { throw new Error('fail'); });
-
-        const lazy = cache.getLazy('a');
-        expect(lazy.errorMessage).toBeNull();
-
-        await lazy.promise;
-        // errorMessage formats the error for display (deprecated, use .error instead)
-        expect(lazy.errorMessage).toBe('fail');
-        expect(lazy.error).toBeInstanceOf(Error);
-    });
-
     test('isLoading returns null after invalidation', async () => {
         const cache = new PromiseCache<string>(async id => id)
             .useInvalidationTime(50);
