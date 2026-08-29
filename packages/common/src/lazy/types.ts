@@ -5,11 +5,11 @@ export type PendingLoadState = 'loading' | 'revalidating' | 'refreshing' | 'refr
 
 /**
  * Per-pending-state override of the reported `isLoading` value.
- * Missing keys fall back to {@link DEFAULT_LOADING_STATE} (current behavior).
+ * Missing keys fall back to {@link DEFAULT_LOADING_STATE}.
  */
 export type LoadingStateStrategy = Partial<Record<PendingLoadState, boolean | null>>;
 
-/** Default `isLoading` report per pending state, reproducing today's behavior. */
+/** Default `isLoading` report per pending state. */
 export const DEFAULT_LOADING_STATE: Record<PendingLoadState, boolean | null> = {
     'loading': true,
     'revalidating': true,

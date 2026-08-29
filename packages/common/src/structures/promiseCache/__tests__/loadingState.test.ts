@@ -1,4 +1,5 @@
 
+import { setTimeoutAsync } from '../../../async/timeout.js';
 import { PromiseCache } from '../index.js';
 import { delayedValue } from './helpers.js';
 
@@ -64,7 +65,7 @@ describe('PromiseCache loading state strategy', () => {
     test('refresh() classifies as \'refreshing:cold\' when no value/error exists, \'refreshing:failed\' when a prior error exists', async () => {
         const failKeys = new Set<string>();
         const cache = new PromiseCache<number>(async (id) => {
-            await new Promise(r => setTimeout(r, 10));
+            await setTimeoutAsync(10);
             if (failKeys.has(id)) throw new Error('fail');
             return 1;
         }).useLoadingState({ 'refreshing:cold': true, 'refreshing:failed': true });
@@ -137,7 +138,8 @@ describe('PromiseCache loading state strategy', () => {
             expect(lazy.isLoading).toBe(false); // falls through to the cache-level strategy
 
             await vi.advanceTimersByTimeAsync(10);
-            await p;
+            expect(await p).toBe(1);
+            expect(lazy.isLoading).toBe(false);
         });
     });
 
@@ -153,7 +155,24 @@ describe('PromiseCache loading state strategy', () => {
         expect(cache.getIsLoading('a')).toBe(false); // retroactive — same in-flight fetch
 
         await vi.advanceTimersByTimeAsync(10);
-        await p;
+        expect(await p).toBe(1);
+        expect(cache.getIsLoading('a')).toBe(false); // settled
+    });
+
+    test('strategy is read live: getter-based fields re-evaluate on each getIsLoading read', async () => {
+        let silent = false;
+        const cache = new PromiseCache<number>(async () => delayedValue(10, 1))
+            .useLoadingState({ get loading() { return silent ? false : true; } });
+
+        const p = cache.get('a');
+        expect(cache.getIsLoading('a')).toBe(true);
+
+        silent = true;
+        expect(cache.getIsLoading('a')).toBe(false); // same in-flight fetch, re-derived
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p).toBe(1);
+        expect(cache.getIsLoading('a')).toBe(false); // settled
     });
 
     // ─── Documented micro-deviations (deliberate, not accidental) ─────────

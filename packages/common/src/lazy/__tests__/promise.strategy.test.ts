@@ -1,3 +1,4 @@
+import { setTimeoutAsync } from '../../async/timeout.js';
 import { ExpireTracker } from '../../structures/expire.js';
 import { LazyPromise } from '../promise.js';
 
@@ -14,7 +15,7 @@ describe('LazyPromise loading state strategy', () => {
     test('{ refreshing: true } reports isLoading during a warm refresh, stale value stays available', async () => {
         let counter = 0;
         const lazy = new LazyPromise(async () => {
-            await new Promise(r => setTimeout(r, 10));
+            await setTimeoutAsync(10);
             return ++counter;
         }).withLoadingState({ refreshing: true });
 
@@ -37,7 +38,7 @@ describe('LazyPromise loading state strategy', () => {
     test('{ "refreshing:cold": true } reports isLoading during a cold refresh', async () => {
         let counter = 0;
         const lazy = new LazyPromise(async () => {
-            await new Promise(r => setTimeout(r, 10));
+            await setTimeoutAsync(10);
             return ++counter;
         }).withLoadingState({ 'refreshing:cold': true });
 
@@ -56,7 +57,7 @@ describe('LazyPromise loading state strategy', () => {
         const expire = new ExpireTracker(10);
         let counter = 0;
         const lazy = new LazyPromise(async () => {
-            await new Promise(r => setTimeout(r, 10));
+            await setTimeoutAsync(10);
             return ++counter;
         }).withExpire(expire).withLoadingState({ revalidating: false });
 
@@ -82,7 +83,7 @@ describe('LazyPromise loading state strategy', () => {
         const expire = new ExpireTracker(10);
         let counter = 0;
         const lazy = new LazyPromise(async () => {
-            await new Promise(r => setTimeout(r, 20));
+            await setTimeoutAsync(20);
             return ++counter;
         }).withExpire(expire).withLoadingState({ revalidating: false });
 
@@ -107,7 +108,7 @@ describe('LazyPromise loading state strategy', () => {
         const expire = new ExpireTracker(10);
         let counter = 0;
         const lazy = new LazyPromise(async () => {
-            await new Promise(r => setTimeout(r, 10));
+            await setTimeoutAsync(10);
             return ++counter;
         }).withExpire(expire).withLoadingState({ revalidating: false });
 
@@ -128,10 +129,32 @@ describe('LazyPromise loading state strategy', () => {
         expect(lazy.value).toBe(100);
     });
 
+    test('strategy is read live: getter-based fields re-evaluate on each isLoading read', async () => {
+        let loud = false;
+        const lazy = new LazyPromise(async () => {
+            await setTimeoutAsync(10);
+            return 1;
+        }).withLoadingState({ get refreshing() { return loud; } });
+
+        const p = lazy.promise;
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
+
+        const refreshPromise = lazy.refresh();
+        expect(lazy.isLoading).toBeFalse();
+
+        loud = true;
+        expect(lazy.isLoading).toBeTrue();
+
+        await vi.advanceTimersByTimeAsync(10);
+        await refreshPromise;
+        expect(lazy.isLoading).toBeFalse();
+    });
+
     test('isLoading path-dependence at defaults: cold refresh stays null, refresh after a failed load stays false', async () => {
         let shouldFail = true;
         const lazy = new LazyPromise(async () => {
-            await new Promise(r => setTimeout(r, 10));
+            await setTimeoutAsync(10);
             if (shouldFail) {
                 throw new Error('fail');
             }

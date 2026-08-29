@@ -155,12 +155,6 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
     /**
      * Re-fetches the value for the specified key while keeping the stale cached value available.
      *
-     * Records a per-key status (`'refreshing'` if a value already exists, `'refreshing:failed'` if
-     * not but a prior error is stored, `'refreshing:cold'` otherwise) so `getIsLoading()` /
-     * `getLazy()` can report it per the configured {@link LoadingStateStrategy} — see
-     * {@link useLoadingState}. Consumers reading `getCurrent()` / `getLazy().value` continue to see
-     * the stale value regardless of what's reported as loading.
-     *
      * Implements "latest wins" concurrency: if multiple refreshes are called concurrently,
      * all promises resolve to the value from the latest refresh.
      *

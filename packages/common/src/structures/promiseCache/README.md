@@ -152,7 +152,7 @@ Every fetch is classified into a **pending state** — a trigger × prior-contex
 | `'refreshing:cold'` | `refresh()`, no value and no prior error | `null` |
 | `'refreshing:failed'` | `refresh()`, no value but a prior error exists | `false` |
 
-`useLoadingState()` overrides what `getIsLoading(id)` / `getLazy(id).isLoading` report for one or more of these states, cache-wide. Missing keys keep the default:
+`useLoadingState()` overrides what `getIsLoading(id)` / `getLazy(id).isLoading` report for one or more of these states, cache-wide. Missing keys keep the default; each call replaces the previous strategy rather than merging with it:
 
 ```ts
 // Silence the spinner during a passive re-fetch of stale data (stale-while-revalidate UX)

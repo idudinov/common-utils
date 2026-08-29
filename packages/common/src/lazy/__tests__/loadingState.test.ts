@@ -1,11 +1,7 @@
 
+import { setTimeoutAsync } from '../../async/timeout.js';
 import { LazyPromise } from '../promise.js';
 import { viewLoadingState } from '../loadingState.js';
-
-/** Helper: creates a promise that resolves after `ms` milliseconds (works with fake timers). */
-function delay(ms: number): Promise<void> {
-    return new Promise(r => setTimeout(r, ms));
-}
 
 describe('viewLoadingState', () => {
 
@@ -19,7 +15,7 @@ describe('viewLoadingState', () => {
 
     test('reports isLoading per view while the source and sibling views report their own, sharing one load', async () => {
         let counter = 0;
-        const factory = vi.fn(() => delay(10).then(() => ++counter));
+        const factory = vi.fn(() => setTimeoutAsync(10).then(() => ++counter));
         const source = new LazyPromise(factory);
 
         const loudView = source.view({ loading: false });
@@ -45,7 +41,7 @@ describe('viewLoadingState', () => {
 
     test('unnamed keys fall through to the source report, not to library defaults', async () => {
         let counter = 0;
-        const source = new LazyPromise(() => delay(10).then(() => ++counter))
+        const source = new LazyPromise(() => setTimeoutAsync(10).then(() => ++counter))
             .withLoadingState({ refreshing: true }); // instance-level override
 
         const view = source.view({}); // view names nothing
@@ -63,7 +59,7 @@ describe('viewLoadingState', () => {
     });
 
     test('pendingState forwards the source', async () => {
-        const source = new LazyPromise(() => delay(10).then(() => 1));
+        const source = new LazyPromise(() => setTimeoutAsync(10).then(() => 1));
         const view = source.view({ loading: false });
 
         expect(view.pendingState).toBeNull();
@@ -79,7 +75,7 @@ describe('viewLoadingState', () => {
 
     test('hasValue/value/error are identical across source and views', async () => {
         let shouldFail = false;
-        const source = new LazyPromise(() => delay(10).then(() => {
+        const source = new LazyPromise(() => setTimeoutAsync(10).then(() => {
             if (shouldFail) {
                 throw new Error('fail');
             }
@@ -107,7 +103,7 @@ describe('viewLoadingState', () => {
 
     test('refresh() through a view is a shared load — factory called once, source sees it too', async () => {
         let counter = 0;
-        const factory = vi.fn(() => delay(10).then(() => ++counter));
+        const factory = vi.fn(() => setTimeoutAsync(10).then(() => ++counter));
         const source = new LazyPromise(factory);
         const view = source.view({ refreshing: true });
 
@@ -130,7 +126,7 @@ describe('viewLoadingState', () => {
     });
 
     test('viewLoadingState composes over an already-forked view (fork-then-fork)', async () => {
-        const source = new LazyPromise(() => delay(10).then(() => 1));
+        const source = new LazyPromise(() => setTimeoutAsync(10).then(() => 1));
         const innerView = source.view({ loading: false });
         const outerView = viewLoadingState(innerView, { loading: true });
 
