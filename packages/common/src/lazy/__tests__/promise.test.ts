@@ -415,7 +415,7 @@ describe('LazyPromise', () => {
             expect(lazy.hasValue).toBeFalse();
         });
 
-        test('parity: LazyPromise and PromiseCache.getLazy() report the same hasValue during passive revalidation', async () => {
+        test('parity: LazyPromise and PromiseCache.getLazy() report the same hasValue/isLoading during passive revalidation', async () => {
             const expire = new ExpireTracker(10);
             let lazyCounter = 0;
             const lazy = new LazyPromise(() => delay(10).then(() => ++lazyCounter)).withExpire(expire);
@@ -433,6 +433,7 @@ describe('LazyPromise', () => {
             await p1;
             await p2;
             expect(lazy.hasValue).toBe(cacheLazy.hasValue);
+            expect(lazy.isLoading).toBe(cacheLazy.isLoading);
 
             await vi.advanceTimersByTimeAsync(11);
 
@@ -440,6 +441,8 @@ describe('LazyPromise', () => {
             expect(cacheLazy.value).toBe(1);
             expect(lazy.hasValue).toBe(cacheLazy.hasValue);
             expect(lazy.hasValue).toBeTrue();
+            expect(lazy.isLoading).toBe(cacheLazy.isLoading);
+            expect(lazy.isLoading).toBeTrue();
 
             const p3 = lazy.promise;
             const p4 = cacheLazy.promise;
@@ -447,6 +450,48 @@ describe('LazyPromise', () => {
             await p3;
             await p4;
             expect(lazy.hasValue).toBe(cacheLazy.hasValue);
+            expect(lazy.isLoading).toBe(cacheLazy.isLoading);
+        });
+
+        test('parity under { revalidating: false }: LazyPromise and PromiseCache.getLazy() silence isLoading identically during passive revalidation', async () => {
+            const expire = new ExpireTracker(10);
+            let lazyCounter = 0;
+            const lazy = new LazyPromise(() => delay(10).then(() => ++lazyCounter))
+                .withExpire(expire)
+                .withLoadingState({ revalidating: false });
+
+            let cacheCounter = 0;
+            const cache = new PromiseCache<number>(async () => {
+                await delay(10);
+                return ++cacheCounter;
+            }).useInvalidationTime(10).useLoadingState({ revalidating: false });
+            const cacheLazy = cache.getLazy('a');
+
+            const p1 = lazy.promise;
+            const p2 = cacheLazy.promise;
+            await vi.advanceTimersByTimeAsync(10);
+            await p1;
+            await p2;
+            expect(lazy.hasValue).toBe(cacheLazy.hasValue);
+            expect(lazy.isLoading).toBe(cacheLazy.isLoading);
+            expect(lazy.isLoading).toBeFalse();
+
+            await vi.advanceTimersByTimeAsync(11);
+
+            expect(lazy.value).toBe(1); // starts a silent passive revalidation
+            expect(cacheLazy.value).toBe(1);
+            expect(lazy.hasValue).toBe(cacheLazy.hasValue);
+            expect(lazy.hasValue).toBeTrue();
+            expect(lazy.isLoading).toBe(cacheLazy.isLoading);
+            expect(lazy.isLoading).toBeFalse(); // silenced on both sides
+
+            const p3 = lazy.promise;
+            const p4 = cacheLazy.promise;
+            await vi.advanceTimersByTimeAsync(10);
+            await p3;
+            await p4;
+            expect(lazy.hasValue).toBe(cacheLazy.hasValue);
+            expect(lazy.isLoading).toBe(cacheLazy.isLoading);
         });
     });
 

@@ -1,4 +1,5 @@
-import type { ILazyPromise, IResolvedLazyPromise, PendingLoadState } from '../../lazy/types.js';
+import { deriveIsLoading } from '../../lazy/loadingState.js';
+import { DEFAULT_LOADING_STATE, type ILazyPromise, type IResolvedLazyPromise, type LoadingStateStrategy, type PendingLoadState } from '../../lazy/types.js';
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
 import type { IMapModel, IValueModel } from '../../models/types.js';
@@ -23,8 +24,8 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     /** Stores resolved items in map by id. */
     protected readonly _itemsCache: IMapModel<string, T>;
 
-    /** Stores items loading state (loading or not) in map by id. */
-    protected readonly _itemsStatus: IMapModel<string, boolean>;
+    /** Stores items loading state in map by id: pending kind while in flight, `false` once settled, absent if never started. */
+    protected readonly _itemsStatus: IMapModel<string, false | PendingLoadState>;
 
     /** Stores items loading count. */
     protected readonly _loadingCount: IValueModel<number>;
@@ -46,6 +47,9 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
 
     protected _version = 0;
 
+    /** Per-pending-state override of the reported `isLoading` value, merged over {@link DEFAULT_LOADING_STATE}. */
+    private _loadingStrategy: Record<PendingLoadState, boolean | null> = DEFAULT_LOADING_STATE;
+
     constructor(
         protected readonly keyAdapter?: ((k: K) => string) | null,
         protected readonly keyParser?: ((id: string) => K) | null,
@@ -54,20 +58,29 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
 
         this._loadingCount = this.pure_createLoadingCount();
         this._itemsCache = this.pure_createMap<string, T>();
-        this._itemsStatus = this.pure_createMap<string, boolean>();
+        this._itemsStatus = this.pure_createMap<string, false | PendingLoadState>();
         this._fetchCache = this.pure_createMap<string, Promise<T | TInitial>>();
         this._errorsMap = this.pure_createMap<string, unknown>();
+    }
+
+    /**
+     * Configures the per-pending-state `isLoading` override for this cache, merged over
+     * {@link DEFAULT_LOADING_STATE}. Applies to every key, including `getLazy()` handles that
+     * don't specify their own strategy.
+     */
+    useLoadingState(strategy: LoadingStateStrategy): this {
+        this._loadingStrategy = { ...DEFAULT_LOADING_STATE, ...strategy };
+        return this;
     }
 
     // ─── Counts ──────────────────────────────────────────────────────────
 
     /**
-     * Returns the number of items currently being fetched (includes background refreshes).
+     * Returns the number of items currently being fetched, including background refreshes.
      *
-     * Note: `loadingCount` includes background refreshes started via `refresh()`,
-     * but `getIsLoading(key)` does **not** reflect background refreshes — it only
-     * tracks the per-key status set by `get()`. Use `loadingCount` for global
-     * "something is loading" indicators.
+     * Unlike `getIsLoading(key)` (which reports per {@link LoadingStateStrategy} and can be
+     * silenced for some pending kinds), this count always increments for every in-flight fetch —
+     * use it for a global "something is loading" indicator.
      */
     public get loadingCount(): number { return this._loadingCount.value; }
 
@@ -145,8 +158,12 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
      * - `value` / `promise` trigger a fetch if not started.
      * - `currentValue` reads without triggering.
      * - `refresh()` re-fetches while keeping the stale value available.
+     *
+     * @param strategy Optional per-handle {@link LoadingStateStrategy}. Named pending states report
+     * this handle's value; unnamed states fall through to the cache-level report (`getIsLoading(key)`),
+     * mirroring {@link viewLoadingState}'s precedence — the handle strategy is not merged with defaults.
      */
-    getLazy(key: K): ILazyPromise<T, TInitial> {
+    getLazy(key: K, strategy?: LoadingStateStrategy): ILazyPromise<T, TInitial> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const self = this;
         const lazy: ILazyPromise<T, TInitial> = {
@@ -158,15 +175,20 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
             },
             get error() { return self.getLastError(key); },
             get isLoading() {
+                const pending = lazy.pendingState;
+                if (pending != null && strategy) {
+                    const override = strategy[pending];
+                    if (override !== undefined) {
+                        return override;
+                    }
+                }
                 const v = self.getIsLoading(key);
                 return v === undefined ? null : v;
             },
             get pendingState(): PendingLoadState | null {
-                if (!self.getIsLoading(key)) {
-                    return null;
-                }
                 const k = self._pk(key);
-                return self._itemsCache.has(k) ? 'revalidating' : 'loading';
+                const status = self._itemsStatus.get(k);
+                return status ? status : null;
             },
             get promise() { return self.get(key); },
             refresh() {
@@ -199,19 +221,22 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     }
 
     /**
-     * Returns the loading state of an item.
+     * Returns the loading state of an item, including background refreshes started via `refresh()`.
      *
-     * Note: background refreshes via `refresh()` do **not** update per-key loading status.
-     * This method only reflects fetches initiated by `get()`. Use `loadingCount` for
-     * a global indicator that includes background refreshes.
+     * While a fetch is in flight, the report is derived from its pending kind per the configured
+     * {@link LoadingStateStrategy} (see {@link useLoadingState}) — a `null` table value surfaces as
+     * `undefined` here to match the method's return type. The derivation is read-time, so a strategy
+     * change applies retroactively to fetches already in flight.
      *
-     * @returns true if loading, false if loading completed, undefined if loading was not started yet (or invalidated).
+     * @returns The strategy-derived value while a fetch is in flight; `false` once settled and valid;
+     * `undefined` if never started, or if the cached item is invalidated.
      */
     getIsLoading(id: K): boolean | undefined {
         const key = this._pk(id);
         const res = this._itemsStatus.get(key);
         if (res) {
-            return res;
+            const derived = deriveIsLoading(res, this._loadingStrategy);
+            return derived ?? undefined;
         }
         const isInvalid = this.getIsInvalidated(key);
         return isInvalid ? undefined : res;
@@ -401,7 +426,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     }
 
     /** Updates the loading status for the specified key. Override to add a hook. */
-    protected setStatus(key: string, status: boolean) {
+    protected setStatus(key: string, status: false | PendingLoadState) {
         this.logger.log(key, 'status update:', status);
         this._itemsStatus.set(key, status);
     }

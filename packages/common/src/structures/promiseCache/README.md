@@ -16,7 +16,7 @@ A key-value cache for async data that goes well beyond a simple `Map<string, Pro
 
 | File | Description |
 |---|---|
-| [`types.ts`](types.ts) | Type definitions — `DeferredGetter<T>` *(deprecated)*, `InvalidationCallback<T>`, `ErrorCallback<K>`, `InvalidationConfig<T>` |
+| [`types.ts`](types.ts) | Type definitions — `DeferredGetter<T>` *(deprecated)*, `InvalidationCallback<T>`, `ErrorCallback<K>`, `InvalidationConfig<T>`; re-exports `PendingLoadState`, `LoadingStateStrategy`, `DEFAULT_LOADING_STATE` from `@zajno/common/lazy` |
 | [`core.ts`](core.ts) | Abstract base class `PromiseCacheCore<T, K>` — storage, state tracking, hooks, `pure_create*` factory methods |
 | [`cache.ts`](cache.ts) | Concrete implementation `PromiseCache<T, K>` — fetching, batching, invalidation, error handling, max-items eviction |
 | [`index.ts`](index.ts) | Barrel re-export of all public API |
@@ -140,6 +140,37 @@ cache.useOnError((key, error) => {
 });
 ```
 
+### Loading State Strategy — `useLoadingState()`
+
+Every fetch is classified into a **pending state** — a trigger × prior-context kind, shared with `LazyPromise`:
+
+| Pending state | Trigger | Default `isLoading` |
+|---|---|---|
+| `'loading'` | `get()`, key never fetched | `true` |
+| `'revalidating'` | `get()`, cached value is invalidated/expired | `true` |
+| `'refreshing'` | `refresh()`, a value already exists | `false` |
+| `'refreshing:cold'` | `refresh()`, no value and no prior error | `null` |
+| `'refreshing:failed'` | `refresh()`, no value but a prior error exists | `false` |
+
+`useLoadingState()` overrides what `getIsLoading(id)` / `getLazy(id).isLoading` report for one or more of these states, cache-wide. Missing keys keep the default:
+
+```ts
+// Silence the spinner during a passive re-fetch of stale data (stale-while-revalidate UX)
+cache.useLoadingState({ revalidating: false });
+
+// Surface a background refresh() as loading
+cache.useLoadingState({ refreshing: true });
+```
+
+The strategy only affects `isLoading` — `hasValue`, `value`, `currentValue`, and `error` are unaffected and always reflect the cached value/error independently of loading state.
+
+`getLazy(id, strategy)` accepts an optional **per-handle** strategy for a presentation-local fork: named pending states report the handle's own value; unnamed states fall through to the cache-level report (not to the library defaults), so it composes on top of `useLoadingState()`:
+
+```ts
+const cache = new PromiseCache<User>(fetchUser); // cache-level: defaults
+const loudHandle = cache.getLazy('user-42', { refreshing: true }); // this handle alone surfaces refresh()
+```
+
 ### Logging
 
 Inherited from `Loggable`. Attach a logger to see internal cache operations:
@@ -159,9 +190,9 @@ cache.setLogger(myLoggerInstance);
 | `get(id)` | `Promise<T \| TInitial>` | Returns cached value or starts a fetch. Concurrent calls for the same key share one promise. `TInitial` defaults to `undefined`; use `useInitialValue()` to narrow it. |
 | `refresh(id)` | `Promise<T \| TInitial>` | Re-fetches the value while keeping the stale cached value available. On error, preserves the stale value. Multiple concurrent refreshes use "latest wins" semantics. |
 | `getCurrent(id, initiateFetch?)` | `T \| TInitial` | Returns the cached value synchronously. When `initiateFetch` is `true` (default), also triggers `get()`. Falls back to the initial value if no cached value exists. |
-| `getLazy(id)` | `ILazyPromise<T, TInitial>` | Returns an `ILazyPromise<T, TInitial>` handle — the same interface used by standalone `LazyPromise`. Supports `value`, `currentValue`, `promise`, `isLoading`, `error`, `hasValue`, and `refresh()`. |
+| `getLazy(id, strategy?)` | `ILazyPromise<T, TInitial>` | Returns an `ILazyPromise<T, TInitial>` handle — the same interface used by standalone `LazyPromise`. Supports `value`, `currentValue`, `promise`, `isLoading`, `pendingState`, `error`, `hasValue`, and `refresh()`. The optional per-handle `strategy` overrides `isLoading` for named pending states; unnamed states fall through to the cache-level report. |
 | `getDeferred(id)` | `DeferredGetter<T>` | ⚠️ **Deprecated.** Use `getLazy(id)` instead. |
-| `getIsLoading(id)` | `boolean \| undefined` | `true` if loading, `false` if done, `undefined` if never started (or invalidated). |
+| `getIsLoading(id)` | `boolean \| undefined` | Derived from the pending kind (see [Loading State Strategy](#loading-state-strategy)) while a fetch is in flight; `false` once settled and valid; `undefined` if never started (or invalidated). |
 | `getIsValid(id)` | `boolean` | `true` if the item is cached **and** not invalidated. |
 | `getLastError(id)` | `unknown` | Last fetch error for the key, or `null`. |
 | `hasKey(id)` | `boolean` | `true` if the item is cached or a fetch was initiated. Does **not** trigger a fetch. |
@@ -265,6 +296,8 @@ When `clear()` is called while fetches are in-flight, the internal `_version` co
 ### Refresh & "Latest Wins"
 
 `refresh(key)` re-fetches the value for a key without clearing the stale cached value. Multiple concurrent refreshes for the same key use "latest wins" semantics — all awaiting promises resolve to the value from the most recent refresh. This mirrors the behavior of `LazyPromise.refresh()`.
+
+Each `refresh()` call records its pending state (`'refreshing'`, `'refreshing:cold'`, or `'refreshing:failed'` — see [Loading State Strategy](#loading-state-strategy)) so `getIsLoading()` / `getLazy()` can report it; `getCurrent()` / `getLazy().value` keep returning the stale value regardless of what's reported as loading.
 
 ```ts
 // Stale-while-revalidate pattern

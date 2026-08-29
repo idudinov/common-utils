@@ -574,4 +574,63 @@ describe('PromiseCache observable', () => {
 
         disposer.dispose();
     });
+
+    // ─── Loading state strategy reactivity ───────────────────────────────
+
+    it('observer on getIsLoading()/getLazy().isLoading reacts across transitions with a strategy set', async () => {
+        let counter = 0;
+        const cache = new PromiseCacheObservable<number, string>(
+            async () => {
+                await new Promise<void>(resolve => setTimeout(resolve, 10));
+                return ++counter;
+            },
+        ).useLoadingState({ refreshing: true });
+
+        const lazy = cache.getLazy('a');
+
+        const isLoadingHandler = vi.fn();
+        const lazyIsLoadingHandler = vi.fn();
+        const disposer = new Disposer();
+
+        disposer.add(
+            reaction(
+                () => cache.getIsLoading('a'),
+                v => isLoadingHandler(v),
+            ),
+        );
+        disposer.add(
+            reaction(
+                () => lazy.isLoading,
+                v => lazyIsLoadingHandler(v),
+            ),
+        );
+
+        // Initial fetch: undefined -> true -> false
+        const p1 = cache.get('a');
+        expect(cache.getIsLoading('a')).toBe(true);
+        await vi.advanceTimersByTimeAsync(10);
+        await p1;
+
+        expect(isLoadingHandler).toHaveBeenCalledWith(true);
+        expect(isLoadingHandler).toHaveBeenCalledWith(false);
+        expect(lazyIsLoadingHandler).toHaveBeenCalledWith(true);
+        expect(lazyIsLoadingHandler).toHaveBeenCalledWith(false);
+
+        isLoadingHandler.mockClear();
+        lazyIsLoadingHandler.mockClear();
+
+        // Refresh: strategy reports isLoading true during flight (overridden from the default false)
+        const refreshPromise = cache.refresh('a');
+        expect(cache.getIsLoading('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(10);
+        await refreshPromise;
+
+        expect(isLoadingHandler).toHaveBeenCalledWith(true);
+        expect(isLoadingHandler).toHaveBeenCalledWith(false);
+        expect(lazyIsLoadingHandler).toHaveBeenCalledWith(true);
+        expect(lazyIsLoadingHandler).toHaveBeenCalledWith(false);
+
+        disposer.dispose();
+    });
 });

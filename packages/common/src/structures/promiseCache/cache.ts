@@ -1,4 +1,5 @@
 import { DebounceProcessor } from '../../functions/debounce.js';
+import type { PendingLoadState } from '../../lazy/types.js';
 import { PromiseCacheCore } from './core.js';
 import type { ErrorCallback, InvalidationConfig, PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from './types.js';
 
@@ -141,7 +142,8 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
             return Promise.resolve(this._getInitialValue(id));
         }
 
-        this.setStatus(key, true);
+        const kind: PendingLoadState = this._itemsCache.has(key) ? 'revalidating' : 'loading';
+        this.setStatus(key, kind);
 
         promise = this._doFetchAsync(id, key, false);
 
@@ -153,8 +155,11 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
     /**
      * Re-fetches the value for the specified key while keeping the stale cached value available.
      *
-     * Does not change the loading status — consumers reading `getCurrent()` / `getLazy().value`
-     * continue to see the stale value as if nothing happened.
+     * Records a per-key status (`'refreshing'` if a value already exists, `'refreshing:failed'` if
+     * not but a prior error is stored, `'refreshing:cold'` otherwise) so `getIsLoading()` /
+     * `getLazy()` can report it per the configured {@link LoadingStateStrategy} — see
+     * {@link useLoadingState}. Consumers reading `getCurrent()` / `getLazy().value` continue to see
+     * the stale value regardless of what's reported as loading.
      *
      * Implements "latest wins" concurrency: if multiple refreshes are called concurrently,
      * all promises resolve to the value from the latest refresh.
@@ -166,6 +171,11 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
      */
     refresh(id: K): Promise<T | TInitial> {
         const key = this._pk(id);
+
+        const kind: PendingLoadState = this._itemsCache.has(key)
+            ? 'refreshing'
+            : (this._errorsMap.has(key) ? 'refreshing:failed' : 'refreshing:cold');
+        this.setStatus(key, kind);
 
         const promise = this._doFetchAsync(id, key, true);
 

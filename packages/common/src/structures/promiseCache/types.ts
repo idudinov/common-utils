@@ -1,4 +1,7 @@
 
+export type { LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
+
 /**
  * Represents a state of a cached item. Holds a references to an actual state.
  * @deprecated Use `ILazyPromise<T>` from `@zajno/common/lazy` instead, obtained via `cache.getLazy(key)`.
