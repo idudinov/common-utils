@@ -252,10 +252,7 @@ type ErrorCallback<K> = (key: K, error: unknown) => void;
 | Factory Method | Creates |
 |---|---|
 | `pure_createLoadingCount()` | `IValueModel<number>` for the loading counter |
-| `pure_createItemsCache()` | `IMapModel<string, T>` for resolved items |
-| `pure_createItemsStatus()` | `IMapModel<string, boolean>` for loading flags |
-| `pure_createFetchCache()` | `IMapModel<string, Promise>` for in-flight promises |
-| `pure_createErrorsMap()` | `IMapModel<string, unknown>` for errors |
+| `pure_createMap<TK, TV>()` | `IMapModel<TK, TV>` used for all internal keyed storage (resolved items, loading status, in-flight promises, errors) |
 
 > ⚠️ These methods are called from the constructor and **must not** reference `this` or `super` — they must be pure/const functions.
 

@@ -53,10 +53,10 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
         super();
 
         this._loadingCount = this.pure_createLoadingCount();
-        this._itemsCache = this.pure_createItemsCache();
-        this._itemsStatus = this.pure_createItemsStatus();
-        this._fetchCache = this.pure_createFetchCache();
-        this._errorsMap = this.pure_createErrorsMap();
+        this._itemsCache = this.pure_createMap<string, T>();
+        this._itemsStatus = this.pure_createMap<string, boolean>();
+        this._fetchCache = this.pure_createMap<string, Promise<T | TInitial>>();
+        this._errorsMap = this.pure_createMap<string, unknown>();
     }
 
     // ─── Counts ──────────────────────────────────────────────────────────
@@ -88,11 +88,11 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
         return count;
     }
 
-    // ─── Pure factory methods (override for observability) ───────────────
+    // ─── Pure factory methods ──────────────────────────────────────────────
 
     /**
      * @pure @const
-     * Creates a model for tracking the loading state. Override to inject own instance, e.g. for observability.
+     * Creates a model for tracking the loading state.
      *
      * Warning: as name indicates, this should be "pure"/"const" function, i.e. should not reference `this`/`super`.
      */
@@ -102,42 +102,13 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
 
     /**
      * @pure @const
-     * Creates a map for caching resolved items by id. Override to inject own instance, e.g. for observability.
-     *
-     * Warning: as name indicates, this should be "pure"/"const" function, i.e. should not reference `this`/`super`.
+     * Creates the map implementation used for all internal keyed storage.
+     * Must be a plain, identity-preserving map: values read back are exactly the values stored,
+     * never wrapped or converted. Value preparation has a dedicated hook: {@link prepareResult}.
+     * Must not reference instance state — called during construction.
      */
-    protected pure_createItemsCache(): IMapModel<string, T> {
-        return new Map<string, T>();
-    }
-
-    /**
-     * @pure @const
-     * Creates a map for tracking the loading state of items by id. Override to inject own instance, e.g. for observability.
-     *
-     * Warning: as name indicates, this should be "pure"/"const" function, i.e. should not reference `this`/`super`.
-     */
-    protected pure_createItemsStatus(): IMapModel<string, boolean> {
-        return new Map<string, boolean>();
-    }
-
-    /**
-     * @pure @const
-     * Creates a map for caching promises of items by id. Override to inject own instance, e.g. for observability.
-     *
-     * Warning: as name indicates, this should be "pure"/"const" function, i.e. should not reference `this`/`super`.
-     */
-    protected pure_createFetchCache(): IMapModel<string, Promise<T | TInitial>> {
-        return new Map<string, Promise<T | TInitial>>();
-    }
-
-    /**
-     * @pure @const
-     * Creates a map for storing last errors by key. Override to inject own instance, e.g. for observability.
-     *
-     * Warning: as name indicates, this should be "pure"/"const" function, i.e. should not reference `this`/`super`.
-     */
-    protected pure_createErrorsMap(): IMapModel<string, unknown> {
-        return new Map<string, unknown>();
+    protected pure_createMap<TK, TV>(): IMapModel<TK, TV> {
+        return new Map<TK, TV>();
     }
 
     // ─── Key handling ────────────────────────────────────────────────────
