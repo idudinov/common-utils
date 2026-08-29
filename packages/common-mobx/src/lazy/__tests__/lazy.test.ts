@@ -1,6 +1,6 @@
 import { setTimeoutAsync } from '@zajno/common/async/timeout';
 import { LazyPromise } from '@zajno/common/lazy/promise';
-import { reaction } from 'mobx';
+import { autorun, reaction } from 'mobx';
 
 import { Disposer } from '@zajno/common/functions/disposer';
 import { createCacheExtension } from '@zajno/common/lazy/extensions';
@@ -871,5 +871,24 @@ describe('LazyPromise', () => {
         ref.setValue(2);
 
         await expect(lazy.refresh()).resolves.toBe(20);
+    });
+
+    it('withLoadingState() applied mid-flight is observed by autorun', async () => {
+        const lazy = new LazyPromiseObservable(() => setTimeoutAsync(50).then(() => 'value'));
+
+        const seen: (boolean | null)[] = [];
+        const clean = autorun(() => { seen.push(lazy.isLoading); });
+
+        void lazy.promise;
+        expect(lazy.isLoading).toBe(true);
+
+        lazy.withLoadingState({ loading: false });
+
+        expect(lazy.isLoading).toBe(false);
+        expect(seen.at(-1)).toBe(false);
+
+        clean();
+
+        await lazy.promise;
     });
 });

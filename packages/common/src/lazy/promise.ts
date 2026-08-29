@@ -39,6 +39,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     private _isAsyncStateChange = false;
 
+    /** Bumped on every `updateState()` call; invalidates deferred writes scheduled before a state change that already settled. */
+    private _stateEpoch = 0;
+
     private _promise: Promise<T | TInitial> | undefined;
     private _expireTracker: IExpireTracker | undefined;
 
@@ -88,7 +91,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     /** @inheritdoc */
     public hasResolvedValue(): this is LazyPromise<T, TInitial> & IResolvedLazyPromise<T, TInitial> {
-        return (this._state === 'resolved' || this._state === 'revalidating' || this._state === 'refreshing') && this._error == null;
+        return this.hasValue;
     }
 
     public get promise(): Promise<T | TInitial> {
@@ -228,15 +231,23 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         const nextState = this.refreshTargetState();
         this.startLoading(true);
 
-        if (this._isAsyncStateChange) {
-            Promise.resolve().then(() => {
-                this.updateState(nextState);
-            });
-        } else {
-            this.updateState(nextState);
-        }
+        this.applyState(nextState);
 
         return this._promise!;
+    }
+
+    /** Applies a state transition immediately, or deferred (per `withAsyncStateChange`) unless superseded before the microtask runs. */
+    private applyState(next: LazyPromiseState) {
+        if (!this._isAsyncStateChange) {
+            this.updateState(next);
+            return;
+        }
+        const epoch = this._stateEpoch;
+        Promise.resolve().then(() => {
+            if (this._stateEpoch === epoch) {
+                this.updateState(next);
+            }
+        });
     }
 
     /** A load already in flight keeps its classification; otherwise it's derived from the last settled state. */
@@ -297,14 +308,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
         if (nextState !== undefined) {
             this.startLoading(false);
-
-            if (this._isAsyncStateChange) {
-                Promise.resolve().then(() => {
-                    this.updateState(nextState);
-                });
-            } else {
-                this.updateState(nextState);
-            }
+            this.applyState(nextState);
         }
     }
 
@@ -380,6 +384,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     protected updateState(state: LazyPromiseState) {
         this._state = state;
+        this._stateEpoch++;
     }
 
     protected setError(err: unknown) {

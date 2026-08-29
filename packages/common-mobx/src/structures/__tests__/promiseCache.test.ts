@@ -1,6 +1,6 @@
 import { Disposer } from '@zajno/common/functions/disposer';
 import { PromiseCacheObservable } from '../promiseCache.js';
-import { reaction, runInAction, configure } from 'mobx';
+import { autorun, reaction, runInAction, configure } from 'mobx';
 
 describe('PromiseCache observable', () => {
     beforeEach(() => {
@@ -632,5 +632,30 @@ describe('PromiseCache observable', () => {
         expect(lazyIsLoadingHandler).toHaveBeenCalledWith(false);
 
         disposer.dispose();
+    });
+
+    it('useLoadingState() called mid-flight is observed by autorun on getLazy().isLoading', async () => {
+        const cache = new PromiseCacheObservable<number, string>(
+            async () => {
+                await new Promise<void>(resolve => setTimeout(resolve, 10));
+                return 1;
+            },
+        );
+
+        const seen: (boolean | null | undefined)[] = [];
+        const clean = autorun(() => { seen.push(cache.getLazy('a').isLoading); });
+
+        const p = cache.get('a');
+        expect(cache.getLazy('a').isLoading).toBe(true);
+
+        cache.useLoadingState({ loading: false });
+
+        expect(cache.getLazy('a').isLoading).toBe(false);
+        expect(seen.at(-1)).toBe(false);
+
+        clean();
+
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
     });
 });

@@ -44,6 +44,7 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             | '_deleteKey'
             | 'clear'
             | 'sanitize'
+            | '_loadingStrategy'
         >(this, {
             setStatus: action,
             setPromise: action,
@@ -55,6 +56,8 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             _deleteKey: action,
             clear: action,
             sanitize: action,
+            _loadingStrategy: observable.ref,
+            useLoadingState: action,
         });
 
         this._observeItems = observeItems;

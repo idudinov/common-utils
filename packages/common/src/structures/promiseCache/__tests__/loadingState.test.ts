@@ -210,6 +210,41 @@ describe('PromiseCache loading state strategy', () => {
         });
     });
 
+    // ─── getIsLoading: derived null is not collapsed into undefined ───────
+
+    describe('getIsLoading: derived null vs never-started undefined', () => {
+
+        test('no strategy: a cold refresh() reports null (not undefined) while in flight', async () => {
+            const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+
+            const refreshPromise = cache.refresh('cold');
+            expect(cache.getIsLoading('cold')).toBeNull();
+            expect(cache.hasKey('cold')).toBe(true);
+            expect(cache.getLazy('cold').isLoading).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(10);
+            await refreshPromise;
+        });
+
+        test('a truly untouched key reports undefined', async () => {
+            const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+
+            expect(cache.getIsLoading('nope')).toBeUndefined();
+        });
+
+        test('{ loading: null } reports null from getIsLoading and getLazy().isLoading while a get() is in flight', async () => {
+            const cache = new PromiseCache<number>(async () => delayedValue(10, 1))
+                .useLoadingState({ loading: null });
+
+            const p = cache.get('a');
+            expect(cache.getIsLoading('a')).toBeNull();
+            expect(cache.getLazy('a').isLoading).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(10);
+            await p;
+        });
+    });
+
     // ─── pendingState tracks the in-flight kind, null once settled ────────
 
     test('getLazy().pendingState reflects the in-flight kind and returns null once settled', async () => {

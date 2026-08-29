@@ -1,12 +1,15 @@
+import { Getter } from '../types/getter.js';
 import { DEFAULT_LOADING_STATE, type ILazyPromise, type IResolvedLazyPromise, type LoadingStateStrategy, type PendingLoadState } from './types.js';
 
-/** The `isLoading` report for a pending state: the first strategy naming it wins, the default otherwise. */
-export function deriveIsLoading(pending: PendingLoadState, ...strategies: (LoadingStateStrategy | undefined)[]): boolean | null {
-    for (const strategy of strategies) {
-        const value = strategy?.[pending];
-        if (value !== undefined) {
-            return value;
-        }
+/** The `isLoading` report for a pending state: `primary` wins, then `secondary`, then the default. */
+export function deriveIsLoading(pending: PendingLoadState, primary?: LoadingStateStrategy, secondary?: LoadingStateStrategy): boolean | null {
+    const primaryValue = primary?.[pending];
+    if (primaryValue !== undefined) {
+        return primaryValue;
+    }
+    const secondaryValue = secondary?.[pending];
+    if (secondaryValue !== undefined) {
+        return secondaryValue;
     }
     return DEFAULT_LOADING_STATE[pending];
 }
@@ -15,10 +18,10 @@ export function deriveIsLoading(pending: PendingLoadState, ...strategies: (Loadi
 export function resolveLoading(
     pending: PendingLoadState | null,
     strategy: LoadingStateStrategy,
-    fallback: boolean | null | undefined,
+    fallback: Getter<boolean | null | undefined>,
 ): boolean | null | undefined {
     const value = pending != null ? strategy[pending] : undefined;
-    return value !== undefined ? value : fallback;
+    return value !== undefined ? value : Getter.toValue(fallback);
 }
 
 /**
@@ -31,6 +34,8 @@ export function viewLoadingState<T, TI extends T | undefined = undefined>(
     source: ILazyPromise<T, TI>,
     strategy: LoadingStateStrategy,
 ): ILazyPromise<T, TI> {
+    const fallbackIsLoading = () => source.isLoading;
+
     const view: ILazyPromise<T, TI> = {
         get value() { return source.value; },
         get currentValue() { return source.currentValue; },
@@ -38,7 +43,7 @@ export function viewLoadingState<T, TI extends T | undefined = undefined>(
         get error() { return source.error; },
         get pendingState() { return source.pendingState; },
         get isLoading() {
-            return resolveLoading(source.pendingState, strategy, source.isLoading);
+            return resolveLoading(source.pendingState, strategy, fallbackIsLoading);
         },
         get promise() { return source.promise; },
         refresh() {

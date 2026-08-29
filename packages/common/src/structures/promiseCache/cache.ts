@@ -166,9 +166,11 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
     refresh(id: K): Promise<T | TInitial> {
         const key = this._pk(id);
 
-        const kind: PendingLoadState = this._itemsCache.has(key)
+        // A load already in flight keeps its classification; otherwise it's derived from cached/error state.
+        const current = this._itemsStatus.get(key);
+        const kind: PendingLoadState = current || (this._itemsCache.has(key)
             ? 'refreshing'
-            : (this._errorsMap.has(key) ? 'refreshing:failed' : 'refreshing:cold');
+            : (this._errorsMap.has(key) ? 'refreshing:failed' : 'refreshing:cold'));
         this.setStatus(key, kind);
 
         const promise = this._doFetchAsync(id, key, true);

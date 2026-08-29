@@ -206,7 +206,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
         return {
             get current() { return self.getCurrent(key); },
             get promise() { return self.get(key); },
-            get isLoading() { return self.getIsLoading(key); },
+            get isLoading() { return self.getIsLoading(key) ?? undefined; },
             get error() { return self.getLastError(key); },
         };
     }
@@ -219,15 +219,15 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
      *
      * @param strategy Optional override consulted before the cache-level strategy; unnamed pending
      * states fall through to it.
-     * @returns Strategy-derived value while a fetch is in flight; `false` once settled and valid;
-     * `undefined` if never started or invalidated.
+     * @returns Strategy-derived value while a fetch is in flight (`null` = pending but silenced/
+     * backgrounded per strategy); `false` once settled and valid; `undefined` if never started or
+     * invalidated.
      */
-    getIsLoading(id: K, strategy?: LoadingStateStrategy): boolean | undefined {
+    getIsLoading(id: K, strategy?: LoadingStateStrategy): boolean | null | undefined {
         const key = this._pk(id);
         const res = this._itemsStatus.get(key);
         if (res) {
-            const derived = deriveIsLoading(res, strategy, this._loadingStrategy);
-            return derived ?? undefined;
+            return deriveIsLoading(res, strategy, this._loadingStrategy);
         }
         const isInvalid = this.getIsInvalidated(key);
         return isInvalid ? undefined : res;
