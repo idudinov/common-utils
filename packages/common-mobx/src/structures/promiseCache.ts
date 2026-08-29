@@ -4,8 +4,21 @@ import type { PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser
 import { NumberModel } from '../viewModels/NumberModel.js';
 import type { IMapModel, IValueModel } from '@zajno/common/models/types';
 
-export { DeferredGetter, DEFAULT_LOADING_STATE } from '@zajno/common/structures/promiseCache';
-export type { InvalidationConfig, InvalidationCallback, ErrorCallback, PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser, LoadingStateStrategy, PendingLoadState } from '@zajno/common/structures/promiseCache';
+export {
+    DeferredGetter,
+    DEFAULT_LOADING_STATE,
+} from '@zajno/common/structures/promiseCache';
+
+export type {
+    InvalidationConfig,
+    InvalidationCallback,
+    ErrorCallback,
+    PromiseCacheFetcher,
+    PromiseCacheKeyAdapter,
+    PromiseCacheKeyParser,
+    LoadingStateStrategy,
+    PendingLoadState,
+} from '@zajno/common/structures/promiseCache';
 
 export class PromiseCacheObservable<T, K = string, TInitial extends T | undefined = undefined> extends PromiseCache<T, K, TInitial> {
 
