@@ -60,20 +60,20 @@ describe('PromiseCache loading state strategy', () => {
         expect(cache.getIsLoading('a')).toBe(false);
     });
 
-    // ─── refresh() classification: cold vs failed ─────────────────────────
+    // ─── refresh() classification: no value exists, regardless of a prior error ──
 
-    test('refresh() classifies as \'refreshing:cold\' when no value/error exists, \'refreshing:failed\' when a prior error exists', async () => {
+    test('refresh() classifies as \'loading\' when no value exists, whether or not a prior error exists', async () => {
         const failKeys = new Set<string>();
         const cache = new PromiseCache<number>(async (id) => {
             await setTimeoutAsync(10);
             if (failKeys.has(id)) throw new Error('fail');
             return 1;
-        }).useLoadingState({ 'refreshing:cold': true, 'refreshing:failed': true });
+        }); // default: loading → true
 
-        // cold: refresh() on a key that was never fetched
+        // never fetched: refresh() on a key that was never touched
         const coldPromise = cache.refresh('cold');
         expect(cache.getIsLoading('cold')).toBe(true);
-        expect(cache.getLazy('cold').pendingState).toBe('refreshing:cold');
+        expect(cache.getLazy('cold').pendingState).toBe('loading');
         await vi.advanceTimersByTimeAsync(10);
         await coldPromise;
         expect(cache.getIsLoading('cold')).toBe(false);
@@ -87,7 +87,7 @@ describe('PromiseCache loading state strategy', () => {
 
         const refreshPromise = cache.refresh('failed');
         expect(cache.getIsLoading('failed')).toBe(true);
-        expect(cache.getLazy('failed').pendingState).toBe('refreshing:failed');
+        expect(cache.getLazy('failed').pendingState).toBe('loading');
 
         failKeys.delete('failed'); // let the refresh succeed
         await vi.advanceTimersByTimeAsync(10);
@@ -210,38 +210,37 @@ describe('PromiseCache loading state strategy', () => {
         });
     });
 
-    // ─── getIsLoading: derived null is not collapsed into undefined ───────
+    // ─── getIsLoading: never-started null vs in-flight/settled boolean ────
 
-    describe('getIsLoading: derived null vs never-started undefined', () => {
+    describe('getIsLoading: never-started (null) vs in-flight/settled (boolean)', () => {
 
-        test('no strategy: a cold refresh() reports null (not undefined) while in flight', async () => {
+        test('a truly untouched key reports null', async () => {
+            const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+
+            expect(cache.getIsLoading('nope')).toBeNull();
+        });
+
+        test('no strategy: a cold refresh() reports true (nothing usable to show) while in flight', async () => {
             const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
 
             const refreshPromise = cache.refresh('cold');
-            expect(cache.getIsLoading('cold')).toBeNull();
+            expect(cache.getIsLoading('cold')).toBe(true);
             expect(cache.hasKey('cold')).toBe(true);
-            expect(cache.getLazy('cold').isLoading).toBeNull();
+            expect(cache.getLazy('cold').isLoading).toBe(true);
 
             await vi.advanceTimersByTimeAsync(10);
             await refreshPromise;
         });
 
-        test('a truly untouched key reports undefined', async () => {
+        test('a settled item reports false from both getIsLoading and getLazy().isLoading', async () => {
             const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
 
-            expect(cache.getIsLoading('nope')).toBeUndefined();
-        });
-
-        test('{ loading: null } reports null from getIsLoading and getLazy().isLoading while a get() is in flight', async () => {
-            const cache = new PromiseCache<number>(async () => delayedValue(10, 1))
-                .useLoadingState({ loading: null });
-
             const p = cache.get('a');
-            expect(cache.getIsLoading('a')).toBeNull();
-            expect(cache.getLazy('a').isLoading).toBeNull();
-
             await vi.advanceTimersByTimeAsync(10);
             await p;
+
+            expect(cache.getIsLoading('a')).toBe(false);
+            expect(cache.getLazy('a').isLoading).toBe(false);
         });
     });
 

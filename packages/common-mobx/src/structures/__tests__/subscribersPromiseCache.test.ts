@@ -56,18 +56,18 @@ describe('ObservingCache works with', () => {
 
             const KEY = '123';
 
-            const deferred = Cache.get(KEY);
+            const lazy = Cache.get(KEY);
 
-            expect(deferred.isLoading).toBeUndefined();
-            expect(deferred.current).toBeUndefined();
-            expect(deferred.isLoading).toBeTruthy();
+            expect(lazy.isLoading).toBeNull();
+            const p = lazy.promise;
+            expect(lazy.isLoading).toBeTruthy();
 
             const expectedItem = toJS(Database[KEY]);
 
-            await expect(deferred.promise).resolves.toStrictEqual(expectedItem);
+            await expect(p).resolves.toStrictEqual(expectedItem);
 
-            expect(deferred.current).toStrictEqual(expectedItem);
-            expect(deferred.isLoading).toBeFalsy();
+            expect(lazy.currentValue).toStrictEqual(expectedItem);
+            expect(lazy.isLoading).toBeFalsy();
 
             expect(unsubFn).toHaveBeenCalledTimes(1);
 
@@ -92,18 +92,18 @@ describe('ObservingCache works with', () => {
 
             const KEY = '123';
 
-            const deferred = Cache.get(KEY);
+            const lazy = Cache.get(KEY);
 
-            expect(deferred.isLoading).toBeUndefined();
-            expect(deferred.current).toBeUndefined();
-            expect(deferred.isLoading).toBeTruthy();
+            expect(lazy.isLoading).toBeNull();
+            const p = lazy.promise;
+            expect(lazy.isLoading).toBeTruthy();
 
             const expectedItem = toJS(Database[KEY]);
 
-            await expect(deferred.promise).resolves.toStrictEqual(expectedItem);
+            await expect(p).resolves.toStrictEqual(expectedItem);
 
-            expect(deferred.current).toStrictEqual(expectedItem);
-            expect(deferred.isLoading).toBeFalsy();
+            expect(lazy.currentValue).toStrictEqual(expectedItem);
+            expect(lazy.isLoading).toBeFalsy();
 
             expect(unsubFn).not.toHaveBeenCalled();
 
@@ -122,7 +122,7 @@ describe('ObservingCache works with', () => {
 
             await setTimeoutAsync(300);
 
-            expect(deferred.current).toStrictEqual(replaceItem);
+            expect(lazy.currentValue).toStrictEqual(replaceItem);
         } finally {
             Cache.dispose();
             expect(unsubFn).toHaveBeenCalledTimes(1);

@@ -1,7 +1,6 @@
 import { Disposable } from '@zajno/common/functions/disposer';
 import type { Fields } from '@zajno/common/fields';
 import type { ILazyPromise } from '@zajno/common/lazy';
-import { DeferredGetter } from '@zajno/common/structures/promiseCache';
 import { SubscribersMapObservable } from './subscribersMap.js';
 import { PromiseCacheObservable } from './promiseCache.js';
 import { catchPromise } from '@zajno/common/functions/safe';
@@ -13,7 +12,7 @@ type ObserveStrategy = boolean | 'short' | number;
 
 export interface IObservingCache<T> {
     /** @deprecated Use {@link getLazy} instead. */
-    get(key: string): DeferredGetter<T>;
+    get(key: string): ILazyPromise<T>;
 
     /** Returns an `ILazyPromise<T>` handle for the specified cache key. */
     getLazy(key: string): ILazyPromise<T>;
@@ -68,27 +67,8 @@ export class SubscribersPromiseCache<T> extends Disposable implements IObserving
         return this._cache.getCurrent(key, false);
     }
 
-    get(key: string, overrideStrategy?: ObserveStrategy, observingStartedPromise?: (p: Promise<void>) => void): DeferredGetter<T> {
-        if (overrideStrategy !== undefined) {
-            this._observeStrategyOverrides[key] = overrideStrategy;
-        }
-
-        const strategy = firstDefined(this._observeStrategyOverrides[key], this._observeStrategy);
-
-        if (strategy && !this._observers.getIsObserving(key)) {
-            // ensure observe
-            if (this._cache.hasKey(key)) {
-                // the request has been initiated already
-                const timeout = getObserveTimeout(strategy);
-                const promise = this._observers.enable(key, true, timeout);
-                if (observingStartedPromise) {
-                    observingStartedPromise(promise);
-                }
-                promise.catch((err: Error) => this.logger?.error('[ObservingCache] Error on starting observe', key, strategy, err));
-            }
-        }
-
-        return this._cache.getDeferred(key);
+    get(key: string, overrideStrategy?: ObserveStrategy, observingStartedPromise?: (p: Promise<void>) => void): ILazyPromise<T> {
+        return this.getLazy(key, overrideStrategy, observingStartedPromise);
     }
 
     getLazy(key: string, overrideStrategy?: ObserveStrategy, observingStartedPromise?: (p: Promise<void>) => void): ILazyPromise<T> {

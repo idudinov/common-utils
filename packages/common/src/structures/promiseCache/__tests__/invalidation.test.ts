@@ -531,7 +531,7 @@ describe('PromiseCache invalidation', () => {
             cache.invalidate('1');
 
             // After invalidate, the key should look like it was never fetched
-            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.getIsLoading('1')).toBeNull();
 
             // Let the original fetch complete
             await vi.advanceTimersByTimeAsync(100);
@@ -540,7 +540,7 @@ describe('PromiseCache invalidation', () => {
             // After the stale fetch completes, the key must still be "never fetched"
             // — invalidate()'s contract: "like it was never fetched/accessed"
             expect(cache.loadingCount).toBe(0);
-            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.getIsLoading('1')).toBeNull();
 
             // A new get() must start a fresh fetch, not return initial value
             fetcher.mockClear();
@@ -575,7 +575,7 @@ describe('PromiseCache invalidation', () => {
 
             // invalidate()'s contract: no trace of the key
             expect(cache.getLastError('1')).toBeNull();
-            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.getIsLoading('1')).toBeNull();
             expect(cache.loadingCount).toBe(0);
         });
     });

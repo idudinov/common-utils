@@ -2,7 +2,7 @@ import { Getter } from '../types/getter.js';
 import { DEFAULT_LOADING_STATE, type ILazyPromise, type IResolvedLazyPromise, type LoadingStateStrategy, type PendingLoadState } from './types.js';
 
 /** The `isLoading` report for a pending state: `primary` wins, then `secondary`, then the default. */
-export function deriveIsLoading(pending: PendingLoadState, primary?: LoadingStateStrategy, secondary?: LoadingStateStrategy): boolean | null {
+export function deriveIsLoading(pending: PendingLoadState, primary?: LoadingStateStrategy, secondary?: LoadingStateStrategy): boolean {
     const primaryValue = primary?.[pending];
     if (primaryValue !== undefined) {
         return primaryValue;
@@ -18,8 +18,8 @@ export function deriveIsLoading(pending: PendingLoadState, primary?: LoadingStat
 export function resolveLoading(
     pending: PendingLoadState | null,
     strategy: LoadingStateStrategy,
-    fallback: Getter<boolean | null | undefined>,
-): boolean | null | undefined {
+    fallback: Getter<boolean | null>,
+): boolean | null {
     const value = pending != null ? strategy[pending] : undefined;
     return value !== undefined ? value : Getter.toValue(fallback);
 }

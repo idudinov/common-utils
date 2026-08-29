@@ -342,7 +342,7 @@ describe('LazyPromise', () => {
             expect(expire.isExpired).toBeTrue();
 
             expect(lazy.value).toBe(1); // starts a passive revalidation
-            expect(lazy.isLoading).toBeTrue(); // default strategy: revalidating reports loading
+            expect(lazy.isLoading).toBeFalse(); // default strategy: revalidating doesn't report loading
             expect(lazy.hasValue).toBeTrue(); // yet the stale value is still considered available
 
             const p2 = lazy.promise;
@@ -442,7 +442,7 @@ describe('LazyPromise', () => {
             expect(lazy.hasValue).toBe(cacheLazy.hasValue);
             expect(lazy.hasValue).toBeTrue();
             expect(lazy.isLoading).toBe(cacheLazy.isLoading);
-            expect(lazy.isLoading).toBeTrue();
+            expect(lazy.isLoading).toBeFalse();
 
             const p3 = lazy.promise;
             const p4 = cacheLazy.promise;

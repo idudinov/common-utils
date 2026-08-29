@@ -255,12 +255,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         const state = this._state;
         switch (state) {
             case null:
-                return 'refreshing:cold';
+            case 'failed':
+                return 'loading';
             case 'resolved':
             case 'revalidating':
                 return 'refreshing';
-            case 'failed':
-                return 'refreshing:failed';
             default:
                 return state;
         }

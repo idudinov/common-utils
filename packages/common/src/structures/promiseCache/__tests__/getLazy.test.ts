@@ -120,7 +120,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.isLoading).toBe(false);
     });
 
-    test('isLoading returns null after invalidation', async () => {
+    test('isLoading stays false after passive (time-based) invalidation', async () => {
         const cache = new PromiseCache<string>(async id => id)
             .useInvalidationTime(50);
 
@@ -129,7 +129,7 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.isLoading).toBe(false);
 
         await vi.advanceTimersByTimeAsync(60);
-        expect(lazy.isLoading).toBeNull(); // invalidated = not started
+        expect(lazy.isLoading).toBe(false); // expiry alone doesn't start a fetch; stale value still served
     });
 
     describe('counts', () => {

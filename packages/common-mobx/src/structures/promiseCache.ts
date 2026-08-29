@@ -5,7 +5,6 @@ import { NumberModel } from '../viewModels/NumberModel.js';
 import type { IMapModel, IValueModel } from '@zajno/common/models/types';
 
 export {
-    DeferredGetter,
     DEFAULT_LOADING_STATE,
 } from '@zajno/common/structures/promiseCache';
 

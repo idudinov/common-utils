@@ -35,17 +35,18 @@ describe('LazyPromise loading state strategy', () => {
         expect(lazy.value).toBe(2);
     });
 
-    test('{ "refreshing:cold": true } reports isLoading during a cold refresh', async () => {
+    test('{ loading: false } silences isLoading during a cold refresh (never loaded, no strategy)', async () => {
         let counter = 0;
         const lazy = new LazyPromise(async () => {
             await setTimeoutAsync(10);
             return ++counter;
-        }).withLoadingState({ 'refreshing:cold': true });
+        }).withLoadingState({ loading: false });
 
         expect(lazy.isLoading).toBeNull();
 
         const refreshPromise = lazy.refresh();
-        expect(lazy.isLoading).toBeTrue();
+        expect(lazy.pendingState).toBe('loading');
+        expect(lazy.isLoading).toBeFalse();
 
         await vi.advanceTimersByTimeAsync(10);
         await refreshPromise;
@@ -151,7 +152,7 @@ describe('LazyPromise loading state strategy', () => {
         expect(lazy.isLoading).toBeFalse();
     });
 
-    test('isLoading path-dependence at defaults: cold refresh stays null, refresh after a failed load stays false', async () => {
+    test('isLoading path-dependence at defaults: cold refresh and retry-after-failure both report true (nothing usable to show)', async () => {
         let shouldFail = true;
         const lazy = new LazyPromise(async () => {
             await setTimeoutAsync(10);
@@ -162,7 +163,8 @@ describe('LazyPromise loading state strategy', () => {
         });
 
         const coldRefresh = lazy.refresh();
-        expect(lazy.isLoading).toBeNull();
+        expect(lazy.pendingState).toBe('loading');
+        expect(lazy.isLoading).toBeTrue();
         await vi.advanceTimersByTimeAsync(10);
         await coldRefresh;
         expect(lazy.isLoading).toBeFalse();
@@ -170,7 +172,8 @@ describe('LazyPromise loading state strategy', () => {
 
         shouldFail = false;
         const recoveryRefresh = lazy.refresh();
-        expect(lazy.isLoading).toBeFalse();
+        expect(lazy.pendingState).toBe('loading');
+        expect(lazy.isLoading).toBeTrue();
         await vi.advanceTimersByTimeAsync(10);
         await recoveryRefresh;
         expect(lazy.isLoading).toBeFalse();

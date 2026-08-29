@@ -1,21 +1,19 @@
 import type { IResettableModel } from '../models/types.js';
 
 /** Kinds of in-flight load — the only states whose `isLoading` report is overridable. */
-export type PendingLoadState = 'loading' | 'revalidating' | 'refreshing' | 'refreshing:cold' | 'refreshing:failed';
+export type PendingLoadState = 'loading' | 'revalidating' | 'refreshing';
 
 /**
  * Per-pending-state override of the reported `isLoading` value.
  * Missing keys fall back to {@link DEFAULT_LOADING_STATE}.
  */
-export type LoadingStateStrategy = Partial<Record<PendingLoadState, boolean | null>>;
+export type LoadingStateStrategy = Partial<Record<PendingLoadState, boolean>>;
 
-/** Default `isLoading` report per pending state. */
-export const DEFAULT_LOADING_STATE: Record<PendingLoadState, boolean | null> = {
+/** Default `isLoading` report per pending state: true only when there is nothing usable to show. */
+export const DEFAULT_LOADING_STATE: Record<PendingLoadState, boolean> = {
     'loading': true,
-    'revalidating': true,
+    'revalidating': false,
     'refreshing': false,
-    'refreshing:cold': null,
-    'refreshing:failed': false,
 };
 
 /** Represents a lazily loaded value that initializes on first access. */
@@ -43,10 +41,10 @@ export interface ILazy<T> {
 /** Represents a lazily asynchronously loaded value with promise-based access. */
 export interface ILazyPromise<T, TInitial extends T | undefined = undefined> extends ILazy<T | TInitial> {
     /**
-     * Returns loading state: true (loading), false (loaded), null/undefined (not started).
-     * Does not trigger loading.
+     * Returns loading state: `true` = loading with nothing usable to show (by default), `false` = settled
+     * or a background re-fetch is in flight, `null` = never started. Does not trigger loading.
      */
-    readonly isLoading: boolean | null | undefined;
+    readonly isLoading: boolean | null;
 
     /** The kind of load currently in flight, or null when idle/settled. */
     readonly pendingState: PendingLoadState | null;

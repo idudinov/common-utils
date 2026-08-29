@@ -3,7 +3,6 @@ import type { ILazyPromise, IResolvedLazyPromise, LoadingStateStrategy, PendingL
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
 import type { IMapModel, IValueModel } from '../../models/types.js';
-import type { DeferredGetter } from './types.js';
 
 /**
  * Core base class for PromiseCache. Provides basic cache operations, hooks, and `pure_create*` methods.
@@ -173,8 +172,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
             },
             get error() { return self.getLastError(key); },
             get isLoading() {
-                const v = self.getIsLoading(key, strategy);
-                return v === undefined ? null : v;
+                return self.getIsLoading(key, strategy);
             },
             get pendingState(): PendingLoadState | null {
                 const k = self._pk(key);
@@ -193,44 +191,23 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     }
 
     /**
-     * Returns a {@link DeferredGetter} object for a specified key.
-     *
-     * This can be used to access the current value, promise, loading state, and last error of the item.
-     *
-     * @deprecated Use {@link getLazy} instead — it returns an `ILazyPromise<T>` which is the standard
-     * interface shared with standalone `LazyPromise` instances.
-     */
-    getDeferred(key: K): DeferredGetter<T> {
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        const self = this;
-        return {
-            get current() { return self.getCurrent(key); },
-            get promise() { return self.get(key); },
-            get isLoading() { return self.getIsLoading(key) ?? undefined; },
-            get error() { return self.getLastError(key); },
-        };
-    }
-
-    /**
      * Returns the loading state of an item.
      *
-     * Derived at read time from the pending kind per {@link useLoadingState} (`null` surfaces as
-     * `undefined`), so a strategy change applies to fetches already in flight.
+     * Derived at read time from the pending kind per {@link useLoadingState}, so a strategy change
+     * applies to fetches already in flight.
      *
      * @param strategy Optional override consulted before the cache-level strategy; unnamed pending
      * states fall through to it.
-     * @returns Strategy-derived value while a fetch is in flight (`null` = pending but silenced/
-     * backgrounded per strategy); `false` once settled and valid; `undefined` if never started or
-     * invalidated.
+     * @returns Strategy-derived value while a fetch is in flight; `false` once settled and valid;
+     * `null` if never started, or after an explicit `invalidate()`.
      */
-    getIsLoading(id: K, strategy?: LoadingStateStrategy): boolean | null | undefined {
+    getIsLoading(id: K, strategy?: LoadingStateStrategy): boolean | null {
         const key = this._pk(id);
         const res = this._itemsStatus.get(key);
         if (res) {
             return deriveIsLoading(res, strategy, this._loadingStrategy);
         }
-        const isInvalid = this.getIsInvalidated(key);
-        return isInvalid ? undefined : res;
+        return res === false ? false : null;
     }
 
     /**

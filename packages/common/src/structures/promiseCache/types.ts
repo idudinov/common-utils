@@ -3,36 +3,6 @@ export type { LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js
 export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
 
 /**
- * Represents a state of a cached item. Holds a references to an actual state.
- * @deprecated Use `ILazyPromise<T>` from `@zajno/common/lazy` instead, obtained via `cache.getLazy(key)`.
- */
-export type DeferredGetter<T> = {
-    /** Get current resolved value, if any, or initiates fetching. */
-    readonly current: T | undefined;
-
-    /** Returns a promise that resolves to the current or fetching value. */
-    readonly promise: Promise<T | undefined>;
-
-    /** Returns true if the item is currently being fetched. Returns undefined if fetching has not started yet. */
-    readonly isLoading: boolean | undefined;
-
-    /** Returns the last error that occurred during fetching, or null if no error occurred. */
-    readonly error: unknown;
-};
-
-export namespace DeferredGetter {
-    const _resolvedPromise = Promise.resolve<undefined>(undefined);
-
-    /** Empty resolved value. */
-    export const Empty = {
-        get current(): undefined { return undefined; },
-        get promise(): Promise<undefined> { return _resolvedPromise; },
-        get isLoading() { return false; },
-        get error() { return null; },
-    } satisfies DeferredGetter<never>;
-}
-
-/**
  * Callback for deciding if a cached item is invalid by key, value, and cached timestamp.
  *
  * @param key The cache key (string).

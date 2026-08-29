@@ -1,7 +1,7 @@
 
 import { type ILogger, LoggersManager } from '../../../logger/index.js';
 import { random } from '../../../math/index.js';
-import { DeferredGetter, PromiseCache } from '../index.js';
+import { PromiseCache } from '../index.js';
 import { delayedValue, delayedError } from './helpers.js';
 import { describe, beforeEach, afterEach, test } from 'vitest';
 
@@ -16,26 +16,6 @@ describe('PromiseCache', () => {
 
     afterEach(() => {
         vi.useRealTimers();
-    });
-
-    test('Empty Deferred Getter', async () => {
-        expect(DeferredGetter.Empty.current).toBeUndefined();
-        expect(DeferredGetter.Empty.isLoading).toBe(false);
-        expect(DeferredGetter.Empty.error).toBeNull();
-
-        await expect(DeferredGetter.Empty.promise).resolves.toBeUndefined();
-    });
-
-    test('getDeferred (deprecated) still works', async () => {
-        const cache = new PromiseCache<string>(async (id) => `value-${id}`);
-
-        const deferred = cache.getDeferred('x');
-        expect(deferred.error).toBeNull();
-        expect(deferred.isLoading).toBeUndefined();
-
-        await deferred.promise;
-        expect(deferred.current).toBe('value-x');
-        expect(deferred.isLoading).toBe(false);
     });
 
     test('hard load', async () => {
@@ -357,7 +337,7 @@ describe('PromiseCache', () => {
         await vi.advanceTimersByTimeAsync(105);
 
         expect(cache.getCurrent('1', false)).toBe(previous);
-        expect(cache.getLazy('1').isLoading).toBeNull(); // invalidated = not started
+        expect(cache.getLazy('1').isLoading).toBe(false); // expired but settled — stale value still served
 
         const nextPromise = cache.get('1');
         await vi.advanceTimersByTimeAsync(50);

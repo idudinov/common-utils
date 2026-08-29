@@ -35,7 +35,7 @@ describe('PromiseCache observable', () => {
 
         checkHandler(undefined);
 
-        await expect(cache.getDeferred('1').promise).resolves.toBe('1');
+        await expect(cache.getLazy('1').promise).resolves.toBe('1');
 
         checkHandler('1');
 
@@ -74,7 +74,7 @@ describe('PromiseCache observable', () => {
 
         checkHandler(undefined);
 
-        await expect(cache.getDeferred('1').promise).resolves.toStrictEqual({ id: '1' });
+        await expect(cache.getLazy('1').promise).resolves.toStrictEqual({ id: '1' });
 
         checkHandler('1');
 
@@ -121,21 +121,21 @@ describe('PromiseCache observable', () => {
 
         checkHandler(undefined);
 
-        const deferred = cache.getDeferred('1');
+        const lazy = cache.getLazy('1');
 
         // PASS 1 - initial fetch
         {
-            // isLoading should be undefined when item is empty
-            expect(deferred.isLoading).toBe(undefined);
-            expect(deferred.current).toBeUndefined();
+            // isLoading should be null when the item was never touched
+            expect(lazy.isLoading).toBeNull();
+            expect(lazy.value).toBeUndefined(); // triggers the fetch
             // here isLoading should be true since fetch is in progress
-            expect(deferred.isLoading).toBe(true);
+            expect(lazy.isLoading).toBe(true);
 
             // Advance past the 10ms fetcher delay
             await vi.advanceTimersByTimeAsync(10);
 
-            expect(deferred.current).toStrictEqual({ id: '1' });
-            expect(deferred.isLoading).toBe(false);
+            expect(lazy.currentValue).toStrictEqual({ id: '1' });
+            expect(lazy.isLoading).toBe(false);
 
             expect(fetcher).toHaveBeenCalledTimes(1);
             fetcher.mockClear();
@@ -148,18 +148,20 @@ describe('PromiseCache observable', () => {
 
         // PASS 2 - re-fetch after invalidation
         {
-            // isLoading should be undefined when item is invalidated
-            expect(deferred.isLoading).toBe(undefined);
+            // settled entry stays false — passive expiry alone doesn't start a fetch
+            expect(lazy.isLoading).toBe(false);
             // Stale value is always kept (stale-while-revalidate)
-            expect(deferred.current).toStrictEqual({ id: '1' });
-            // here isLoading should be true since fetch is in progress
-            expect(deferred.isLoading).toBe(true);
+            expect(lazy.currentValue).toStrictEqual({ id: '1' });
+            expect(lazy.value).toStrictEqual({ id: '1' }); // triggers a passive revalidation
+            expect(lazy.pendingState).toBe('revalidating');
+            // default strategy doesn't report a passive revalidation as loading
+            expect(lazy.isLoading).toBe(false);
 
             // Advance past the 10ms fetcher delay
             await vi.advanceTimersByTimeAsync(10);
 
-            expect(deferred.current).toStrictEqual({ id: '1' });
-            expect(deferred.isLoading).toBe(false);
+            expect(lazy.currentValue).toStrictEqual({ id: '1' });
+            expect(lazy.isLoading).toBe(false);
 
             expect(fetcher).toHaveBeenCalledTimes(1);
             fetcher.mockClear();
@@ -196,20 +198,20 @@ describe('PromiseCache observable', () => {
 
         checkHandler(undefined);
 
-        const deferred = cache.getDeferred('1');
+        const lazy = cache.getLazy('1');
 
         // PASS 1 - initial fetch
-        // isLoading should be undefined when item is empty
-        expect(deferred.isLoading).toBe(undefined);
-        expect(deferred.current).toBeUndefined();
+        // isLoading should be null when the item was never touched
+        expect(lazy.isLoading).toBeNull();
+        expect(lazy.value).toBeUndefined(); // triggers the fetch
         // here isLoading should be true since fetch is in progress
-        expect(deferred.isLoading).toBe(true);
+        expect(lazy.isLoading).toBe(true);
 
         // Let the microtask-based fetcher resolve
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(deferred.current).toStrictEqual({ id: '1' });
-        expect(deferred.isLoading).toBe(false);
+        expect(lazy.currentValue).toStrictEqual({ id: '1' });
+        expect(lazy.isLoading).toBe(false);
 
         expect(fetcher).toHaveBeenCalledTimes(1);
         fetcher.mockClear();
@@ -221,21 +223,23 @@ describe('PromiseCache observable', () => {
 
         // PASS 2 - re-fetch after invalidation
 
-        expect(deferred.isLoading).toBe(undefined);
+        // settled entry stays false — passive expiry alone doesn't start a fetch
+        expect(lazy.isLoading).toBe(false);
         expect(fetcher).toHaveBeenCalledTimes(0);
 
-        expect(deferred.current).toStrictEqual({ id: '1' }); // returning old value
+        expect(lazy.value).toStrictEqual({ id: '1' }); // returning old value, triggers a passive revalidation
 
         expect(handler).toHaveBeenCalledTimes(0); // no reaction
 
-        // here isLoading should be true since fetch is in progress
-        expect(deferred.isLoading).toBe(true);
+        expect(lazy.pendingState).toBe('revalidating');
+        // default strategy doesn't report a passive revalidation as loading
+        expect(lazy.isLoading).toBe(false);
 
         // Let the microtask-based fetcher resolve
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(deferred.current).toStrictEqual({ id: '1' });
-        expect(deferred.isLoading).toBe(false);
+        expect(lazy.currentValue).toStrictEqual({ id: '1' });
+        expect(lazy.isLoading).toBe(false);
 
         expect(fetcher).toHaveBeenCalledTimes(1);
         fetcher.mockClear();
@@ -347,18 +351,18 @@ describe('PromiseCache observable', () => {
         expect(cache.cachedCount).toBe(0);
     });
 
-    it('DeferredGetter error is observable', async () => {
+    it('getLazy() error is observable', async () => {
         const fetchError = new Error('Deferred observable error');
 
         const cache = new PromiseCacheObservable<string, string>(
             async () => { throw fetchError; },
         );
 
-        const deferred = cache.getDeferred('fail');
-        expect(deferred.error).toBeNull();
+        const lazy = cache.getLazy('fail');
+        expect(lazy.error).toBeNull();
 
-        await deferred.promise;
-        expect(deferred.error).toBe(fetchError);
+        await lazy.promise;
+        expect(lazy.error).toBe(fetchError);
     });
 
     it('refresh triggers observable reactions', async () => {
@@ -642,7 +646,7 @@ describe('PromiseCache observable', () => {
             },
         );
 
-        const seen: (boolean | null | undefined)[] = [];
+        const seen: (boolean | null)[] = [];
         const clean = autorun(() => { seen.push(cache.getLazy('a').isLoading); });
 
         const p = cache.get('a');
