@@ -96,6 +96,23 @@ describe('LazyPromise', () => {
         cleanError();
     });
 
+    it('isLoading is observable across transitions under a loading-state strategy', async () => {
+        const l = new LazyPromiseObservable(() => setTimeoutAsync(50).then(() => 'value'))
+            .withLoadingState({ refreshing: true });
+
+        const seen: (boolean | null)[] = [];
+        const clean = reaction(() => l.isLoading, v => seen.push(v), { fireImmediately: true });
+
+        expect(l.value).toBeUndefined();
+        await l.promise;
+        await l.refresh();
+
+        clean();
+
+        // null (idle) -> true (loading) -> false (resolved) -> true (refreshing, per strategy) -> false (resolved)
+        expect(seen).toEqual([null, true, false, true, false]);
+    });
+
     it('error observable on refresh', async () => {
         let counter = 0;
         const l = new LazyPromiseObservable<string>(async () => {

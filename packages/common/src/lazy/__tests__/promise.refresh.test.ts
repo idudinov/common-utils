@@ -428,4 +428,5 @@ describe('LazyPromise refresh', () => {
         expect(lazy.value).toBe(2);
         expect(lazy.error).toBeNull();
     });
+
 });

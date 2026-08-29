@@ -2,7 +2,17 @@ import { tryDispose, type IDisposable } from '../functions/disposer.js';
 import { formatError } from '../functions/safe.js';
 import type { IResettableModel } from '../models/types.js';
 import type { IExpireTracker } from '../structures/expire.js';
-import type { IControllableLazyPromise, ILazyPromiseExtension, IResolvedLazyPromise, LazyFactory } from './types.js';
+import { deriveIsLoading, viewLoadingState } from './loadingState.js';
+import { DEFAULT_LOADING_STATE, type IControllableLazyPromise, type ILazyPromise, type ILazyPromiseExtension, type IResolvedLazyPromise, type LazyFactory, type LoadingStateStrategy, type PendingLoadState } from './types.js';
+
+/**
+ * Granular state, recording facts (pending trigger × last settled outcome):
+ * - `null` — idle, never settled
+ * - `'resolved'` — settled with a value (factory or `setInstance`)
+ * - `'failed'` — settled, first load failed, no value
+ * - {@link PendingLoadState} — a load is in flight
+ */
+type LazyPromiseState = null | 'resolved' | 'failed' | PendingLoadState;
 
 /**
  * Asynchronous lazy-loading container that initializes via a promise-based factory.
@@ -16,8 +26,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     private _instance: T | TInitial;
 
-    /** Current loading state: true = loading, false = loaded, null = not started */
-    private _state: boolean | null = null;
+    /** Granular loading state — see {@link LazyPromiseState}. */
+    private _state: LazyPromiseState = null;
+
+    /** Per-pending-state override of the reported `isLoading` value, merged over {@link DEFAULT_LOADING_STATE}. */
+    private _loadingStrategy: Record<PendingLoadState, boolean | null> = DEFAULT_LOADING_STATE;
 
     private _isAsyncStateChange = false;
 
@@ -40,16 +53,39 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         this._instance = initial as T | TInitial; // as ILazyValue<T, TInitial>;
     }
 
-    /** Current loading state: true = loading, false = loaded, null = not started */
-    public get isLoading() { return this._state; }
+    /** Current loading state: true = loading, false = loaded, null = not started. Pending states report per {@link withLoadingState}, default {@link DEFAULT_LOADING_STATE}. */
+    public get isLoading(): boolean | null {
+        const state = this._state;
+        if (state === null) {
+            return null;
+        }
+        if (state === 'resolved' || state === 'failed') {
+            return false;
+        }
+        return deriveIsLoading(state, this._loadingStrategy);
+    }
 
-    /** Returns true if a value of type `T` has been successfully loaded (no error). */
-    public get hasValue() { return this._state === false && this._error == null; }
+    /**
+     * Returns true if a value of type `T` has been successfully loaded (no error).
+     *
+     * Stays `true` during refreshes and passive revalidation — a stale value is still available in
+     * {@link value}/{@link currentValue}. Use {@link isLoading} as the signal for hiding stale values.
+     */
+    public get hasValue() {
+        return (this._state === 'resolved' || this._state === 'revalidating' || this._state === 'refreshing') && this._error == null;
+    }
+
     public get error(): unknown { return this._error; }
+
+    /** The kind of load currently in flight, or null when idle/settled. */
+    public get pendingState(): PendingLoadState | null {
+        const state = this._state;
+        return state !== null && state !== 'resolved' && state !== 'failed' ? state : null;
+    }
 
     /** @inheritdoc */
     public hasResolvedValue(): this is LazyPromise<T, TInitial> & IResolvedLazyPromise<T, TInitial> {
-        return this._state === false && this._error == null;
+        return (this._state === 'resolved' || this._state === 'revalidating' || this._state === 'refreshing') && this._error == null;
     }
 
     /** @deprecated Use {@link error} instead. */
@@ -81,6 +117,17 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     public withAsyncStateChange(enabled: boolean) {
         this._isAsyncStateChange = enabled;
         return this;
+    }
+
+    /** Configures the per-pending-state `isLoading` override, merged over {@link DEFAULT_LOADING_STATE}. */
+    public withLoadingState(strategy: LoadingStateStrategy) {
+        this._loadingStrategy = { ...DEFAULT_LOADING_STATE, ...strategy };
+        return this;
+    }
+
+    /** Returns a read-only fork reporting `isLoading` per `strategy`; shares lifecycle with this instance. */
+    public view(strategy: LoadingStateStrategy): ILazyPromise<T, TInitial> {
+        return viewLoadingState<T, TInitial>(this, strategy);
     }
 
     /**
@@ -149,7 +196,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * @returns The value that was set
      */
     public setInstance(res: T) {
-        this.updateState(false);
+        this.updateState('resolved');
         this.clearError(); // clear error on successful set
 
         // refresh promise so it won't keep old callbacks
@@ -176,8 +223,38 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * @returns Promise resolving to the refreshed value
      */
     public async refresh(): Promise<T | TInitial> {
+        const nextState = this.refreshTargetState();
         this.startLoading(true);
+
+        if (this._isAsyncStateChange) {
+            Promise.resolve().then(() => {
+                this.updateState(nextState);
+            });
+        } else {
+            this.updateState(nextState);
+        }
+
         return this._promise!;
+    }
+
+    /**
+     * Classification for a `refresh()` call, tied to the last-settled fact:
+     * a load already in flight keeps its current classification (still the same first load,
+     * or still a refresh of the same kind); otherwise it's derived from the last settled state.
+     */
+    private refreshTargetState(): PendingLoadState {
+        const state = this._state;
+        switch (state) {
+            case null:
+                return 'refreshing:cold';
+            case 'resolved':
+            case 'revalidating':
+                return 'refreshing';
+            case 'failed':
+                return 'refreshing:failed';
+            default:
+                return state;
+        }
     }
 
     public reset() {
@@ -207,18 +284,22 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     private ensureInstanceLoading() {
-        let nextState: typeof this._state | undefined;
-        if (this.isLoading === false && this._instance !== undefined && this._expireTracker?.isExpired) {
-            // do not reset the instance, just make sure it will be reloaded
-            nextState = null;
-        }
+        let nextState: PendingLoadState | undefined;
 
-        if (this._state === null || nextState === null) {
-            nextState = true;
-            this.startLoading(false);
+        if (this._state === null) {
+            nextState = 'loading';
+        } else if (
+            (this._state === 'resolved' || this._state === 'failed')
+            && this._instance !== undefined
+            && this._expireTracker?.isExpired
+        ) {
+            // stale value stays put; only a 'resolved' source counts as a real revalidation of a value
+            nextState = this._state === 'resolved' ? 'revalidating' : 'loading';
         }
 
         if (nextState !== undefined) {
+            this.startLoading(false);
+
             if (this._isAsyncStateChange) {
                 Promise.resolve().then(() => {
                     this.updateState(nextState);
@@ -252,7 +333,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
                 if (this._activeFactoryPromise === factoryPromise) {
                     // case: during the promise `setInstance` was called manually
-                    if (!refreshing && !this._state && this._instance !== undefined) {
+                    if (!refreshing && this._state === 'resolved') {
                         return this._instance;
                     }
                     this.setInstance(res);
@@ -288,7 +369,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     protected onRejected(e: unknown): T | TInitial {
-        this.updateState(false);
+        // A stale value was already available before this load started — kept, not lost, on failure.
+        const keptStaleValue = this._state === 'revalidating' || this._state === 'refreshing';
+        this.updateState(keptStaleValue ? 'resolved' : 'failed');
         // Keep the current instance on error (don't reset to initial)
         // This allows retaining the last successful value
         const currentInstance = this._instance !== undefined ? this._instance : this._initial;
@@ -298,8 +381,8 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return currentInstance;
     }
 
-    protected updateState(isLoading: boolean | null) {
-        this._state = isLoading;
+    protected updateState(state: LazyPromiseState) {
+        this._state = state;
     }
 
     protected setError(err: unknown) {

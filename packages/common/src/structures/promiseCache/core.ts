@@ -1,4 +1,4 @@
-import type { ILazyPromise, IResolvedLazyPromise } from '../../lazy/types.js';
+import type { ILazyPromise, IResolvedLazyPromise, PendingLoadState } from '../../lazy/types.js';
 import { formatError } from '../../functions/safe.js';
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
@@ -195,6 +195,13 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
             get isLoading() {
                 const v = self.getIsLoading(key);
                 return v === undefined ? null : v;
+            },
+            get pendingState(): PendingLoadState | null {
+                if (!self.getIsLoading(key)) {
+                    return null;
+                }
+                const k = self._pk(key);
+                return self._itemsCache.has(k) ? 'revalidating' : 'loading';
             },
             get promise() { return self.get(key); },
             refresh() {
