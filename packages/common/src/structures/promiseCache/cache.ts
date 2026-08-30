@@ -4,7 +4,7 @@ import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../..
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
 import type { IMapModel, IValueModel } from '../../models/types.js';
-import type { IPromiseCacheExtension } from './extensions.js';
+import type { IPromiseCacheExtension } from './extensions/index.js';
 import { isInvalidated } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
 import type { ErrorCallback, IControllablePromiseCache, InvalidationConfig, InvalidationMode, PromiseCacheFetcher, PromiseCacheOptions, PromiseCacheStorageProvider } from './types.js';

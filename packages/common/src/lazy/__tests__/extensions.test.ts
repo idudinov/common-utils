@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { IKeyedStorage, IKeyedStorageSync } from '../../storage/types.js';
-import { createCacheExtension } from '../extensions.js';
+import { createCacheExtension } from '../extensions/index.js';
 import { LazyPromise } from '../promise.js';
 
 describe('createCacheExtension', () => {

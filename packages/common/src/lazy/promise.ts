@@ -1,11 +1,11 @@
 import { tryDispose, type IDisposable } from '../functions/disposer.js';
 import type { IResettableModel } from '../models/types.js';
 import type { IExpireTracker } from '../structures/expire.js';
+import type { ILazyPromiseExtension } from './extensions/types.js';
 import { deriveIsLoading, passivePendingKind, refreshPendingKind, viewLoadingState } from './loadingState.js';
 import type {
     IControllableLazyPromise,
     ILazyPromise,
-    ILazyPromiseExtension,
     IResolvedLazyPromise,
     LazyFactory,
     LoadingStateStrategy,
