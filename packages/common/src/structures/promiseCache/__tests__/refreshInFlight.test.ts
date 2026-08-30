@@ -79,7 +79,7 @@ describe('PromiseCache refresh() during an in-flight get()', () => {
             const lazy = new LazyPromise(() => new Promise<number>(r => { setTimeout(() => r(++lazyCounter), 10); }))
                 .withExpire(expire);
             const cache = new PromiseCache<number>(() => new Promise<number>(r => { setTimeout(() => r(++cacheCounter), 10); }))
-                .useInvalidationTime(10);
+                .useInvalidation({ expirationMs: 10 });
 
             const lazyPromise1 = lazy.promise;
             const cachePromise1 = cache.get('a');

@@ -1,5 +1,5 @@
 
-import { PromiseCache } from '../index.js';
+import { createBatchingExtension, PromiseCache } from '../index.js';
 import { delayedValue } from './helpers.js';
 import { describe, beforeEach, afterEach, test, expect, vi } from 'vitest';
 
@@ -49,7 +49,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return results;
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         // Request items 1 and 2 individually (they'll be batched together)
         const p1 = cache.get('1');
@@ -123,7 +123,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return results;
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         const p1 = cache.get('1');
         await vi.advanceTimersByTimeAsync(200);
@@ -159,7 +159,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return ids.map(id => `batch-${id}`);
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         // Request multiple keys — all will be batched together
         const promises = ['a', 'b', 'c'].map(id => cache.get(id));
@@ -205,7 +205,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return results;
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         const lazy1 = cache.getLazy('1');
         void lazy1.promise;

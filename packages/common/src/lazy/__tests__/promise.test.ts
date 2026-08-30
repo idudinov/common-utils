@@ -424,7 +424,7 @@ describe('LazyPromise', () => {
             const cache = new PromiseCache<number>(async () => {
                 await delay(10);
                 return ++cacheCounter;
-            }).useInvalidationTime(10);
+            }).useInvalidation({ expirationMs: 10 });
             const cacheLazy = cache.getLazy('a');
 
             const p1 = lazy.promise;
@@ -464,7 +464,7 @@ describe('LazyPromise', () => {
             const cache = new PromiseCache<number>(async () => {
                 await delay(10);
                 return ++cacheCounter;
-            }).useInvalidationTime(10).useLoadingState({ revalidating: false });
+            }).useInvalidation({ expirationMs: 10 }).useLoadingState({ revalidating: false });
             const cacheLazy = cache.getLazy('a');
 
             const p1 = lazy.promise;

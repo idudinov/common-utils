@@ -1,64 +1,45 @@
-import { observable, makeObservable, action } from 'mobx';
+import type { IValueModel } from '@zajno/common/models/types';
+import type { PromiseCacheFetcher, PromiseCacheStorageProvider } from '@zajno/common/structures/promiseCache';
 import { PromiseCache } from '@zajno/common/structures/promiseCache';
-import type { PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from '@zajno/common/structures/promiseCache';
-import { NumberModel } from '../viewModels/NumberModel.js';
-import type { IMapModel, IValueModel } from '@zajno/common/models/types';
+import { observable, runInAction } from 'mobx';
+import { ValueModel } from '../viewModels/ValueModel.js';
 
 export {
     DEFAULT_LOADING_STATE,
 } from '@zajno/common/structures/promiseCache';
 
 export type {
-    InvalidationConfig,
-    InvalidationCallback,
     ErrorCallback,
-    PromiseCacheFetcher,
-    PromiseCacheKeyAdapter,
-    PromiseCacheKeyParser,
+    InvalidationCallback,
+    InvalidationConfig,
     LoadingStateStrategy,
     PendingLoadState,
+    PromiseCacheFetcher,
+    PromiseCacheStorageProvider,
 } from '@zajno/common/structures/promiseCache';
 
-export class PromiseCacheObservable<T, K = string, TInitial extends T | undefined = undefined> extends PromiseCache<T, K, TInitial> {
+/**
+ * Storage provider backing {@link PromiseCacheObservable}: bare mobx-observable maps and value models.
+ * Every mutation runs inside `transaction` (wired to `runInAction`) by the core cache — an unwrapped
+ * write is a bug in the core, not something this provider papers over with its own action wrapping.
+ */
+export const mobxStorageProvider: PromiseCacheStorageProvider = {
+    createMap: <K, V>() => observable.map<K, V>(undefined, { deep: false }),
+    createValue: <V>(initial: V) => new ValueModel<V>(initial) as IValueModel<V>,
+    transaction: fn => runInAction(fn),
+};
+
+export class PromiseCacheObservable<T, TKey extends string = string, TInitial extends T | undefined = undefined> extends PromiseCache<T, TKey, TInitial> {
 
     private _observeItems = false;
 
     constructor(
-        fetcher: PromiseCacheFetcher<T, K>,
-        keyAdapter?: PromiseCacheKeyAdapter<K>,
-        keyParser?: PromiseCacheKeyParser<K>,
+        fetcher: PromiseCacheFetcher<T, TKey>,
         observeItems = false,
     ) {
-        super(fetcher, keyAdapter, keyParser);
-
-        makeObservable<
-            PromiseCacheObservable<T, K, TInitial>,
-            | 'setStatus'
-            | 'setPromise'
-            | 'onBeforeFetch'
-            | 'storeResult'
-            | 'onFetchComplete'
-            | 'onFetchSuperseded'
-            | 'onFetchCancelled'
-            | '_deleteKey'
-            | 'clear'
-            | 'sanitize'
-            | '_loadingStrategy'
-        >(this, {
-            setStatus: action,
-            setPromise: action,
-            onBeforeFetch: action,
-            storeResult: action,
-            onFetchComplete: action,
-            onFetchSuperseded: action,
-            onFetchCancelled: action,
-            _deleteKey: action,
-            clear: action,
-            sanitize: action,
-            set: action,
-            invalidate: action,
-            _loadingStrategy: observable.ref,
-            useLoadingState: action,
+        super(fetcher, {
+            storage: mobxStorageProvider,
+            prepareValue: value => (this._observeItems ? observable.object(value) : value),
         });
 
         this._observeItems = observeItems;
@@ -67,18 +48,5 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
     useObserveItems(observeItems: boolean) {
         this._observeItems = observeItems;
         return this;
-    }
-
-    protected pure_createLoadingCount(): IValueModel<number> {
-        return new NumberModel();
-    }
-
-    protected pure_createMap<TK, TV>(): IMapModel<TK, TV> {
-        return observable.map<TK, TV>(undefined, { deep: false });
-    }
-
-    /** @override */
-    protected prepareResult(res: T) {
-        return this._observeItems ? observable.object(res) : res;
     }
 }

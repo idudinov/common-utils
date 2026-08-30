@@ -14,12 +14,11 @@ describe('PromiseCache loading state strategy', () => {
         vi.useRealTimers();
     });
 
-    // ─── useLoadingState: silencing passive revalidation ─────────────────
-
+    // --- useLoadingState: silencing passive revalidation ---
     test('{ revalidating: false } silences isLoading during a passive re-fetch of an expired item; loadingCount still increments', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter))
-            .useInvalidationTime(10)
+            .useInvalidation({ expirationMs: 10 })
             .useLoadingState({ revalidating: false });
 
         const p1 = cache.get('a');
@@ -41,8 +40,7 @@ describe('PromiseCache loading state strategy', () => {
         expect(cache.loadingCount).toBe(0);
     });
 
-    // ─── useLoadingState: loudening refresh() ─────────────────────────────
-
+    // --- useLoadingState: loudening refresh() ---
     test('{ refreshing: true } reports isLoading true while a warm refresh is in flight, false after', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter))
@@ -61,8 +59,7 @@ describe('PromiseCache loading state strategy', () => {
         expect(cache.getIsLoading('a')).toBe(false);
     });
 
-    // ─── refresh() classification: no value exists, regardless of a prior error ──
-
+    // --- refresh() classification: no value exists, regardless of a prior error ---
     test('refresh() classifies as \'loading\' when no value exists, whether or not a prior error exists', async () => {
         const failKeys = new Set<string>();
         const cache = new PromiseCache<number>(async (id) => {
@@ -97,8 +94,7 @@ describe('PromiseCache loading state strategy', () => {
         expect(cache.getLastError('failed')).toBeNull();
     });
 
-    // ─── getLazy(key, strategy): per-handle views ─────────────────────────
-
+    // --- getLazy(key, strategy): per-handle views ---
     describe('getLazy(key, strategy)', () => {
 
         test('reports its own isLoading while the cache-level report (and a strategy-less handle) differ, sharing one refresh', async () => {
@@ -144,8 +140,7 @@ describe('PromiseCache loading state strategy', () => {
         });
     });
 
-    // ─── Strategy changes apply retroactively ─────────────────────────────
-
+    // --- Strategy changes apply retroactively ---
     test('useLoadingState() called mid-flight is reflected retroactively by getIsLoading', async () => {
         const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
 
@@ -176,8 +171,7 @@ describe('PromiseCache loading state strategy', () => {
         expect(cache.getIsLoading('a')).toBe(false); // settled
     });
 
-    // ─── Documented micro-deviations (deliberate, not accidental) ─────────
-
+    // --- Documented micro-deviations (deliberate, not accidental) ---
     describe('documented micro-deviations at defaults', () => {
 
         test('hasKey() is true while a cold refresh() is in flight', async () => {
@@ -194,7 +188,7 @@ describe('PromiseCache loading state strategy', () => {
         test('getIsLoading reports false (not undefined) while refresh()ing an expired cached item', async () => {
             let counter = 0;
             const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter))
-                .useInvalidationTime(10);
+                .useInvalidation({ expirationMs: 10 });
 
             const p1 = cache.get('a');
             await vi.advanceTimersByTimeAsync(10);
@@ -211,8 +205,7 @@ describe('PromiseCache loading state strategy', () => {
         });
     });
 
-    // ─── getIsLoading: never-started null vs in-flight/settled boolean ────
-
+    // --- getIsLoading: never-started null vs in-flight/settled boolean ---
     describe('getIsLoading: never-started (null) vs in-flight/settled (boolean)', () => {
 
         test('a truly untouched key reports null', async () => {
@@ -245,8 +238,7 @@ describe('PromiseCache loading state strategy', () => {
         });
     });
 
-    // ─── pendingState tracks the in-flight kind, null once settled ────────
-
+    // --- pendingState tracks the in-flight kind, null once settled ---
     test('getLazy().pendingState reflects the in-flight kind and returns null once settled', async () => {
         const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
         const lazy = cache.getLazy('a');
@@ -260,8 +252,7 @@ describe('PromiseCache loading state strategy', () => {
         expect(lazy.pendingState).toBeNull();
     });
 
-    // ─── set() settles the key rather than clearing its status ───────────
-
+    // --- set() settles the key rather than clearing its status ---
     describe('set() reports false (settled), not null', () => {
 
         test('set() on a never-fetched key settles it: getIsLoading/isLoading false, pendingState null', () => {

@@ -13,8 +13,7 @@ describe('PromiseCache.useInitialValue', () => {
         vi.useRealTimers();
     });
 
-    // ─── Static initial value ────────────────────────────────────────────
-
+    // --- Static initial value ---
     test('getCurrent returns initial value before fetch', () => {
         const cache = new PromiseCache<string>(async (id) => delayedValue(10, `fetched-${id}`))
             .useInitialValue('loading...');
@@ -56,8 +55,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(lazy.hasValue).toBe(true);
     });
 
-    // ─── Per-key factory ─────────────────────────────────────────────────
-
+    // --- Per-key factory ---
     test('per-key factory returns different initial values', () => {
         const cache = new PromiseCache<{ id: string; name: string }>(
             async (id) => delayedValue(10, { id, name: `User ${id}` }),
@@ -67,8 +65,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(cache.getCurrent('b', false)).toEqual({ id: 'b', name: 'Loading...' });
     });
 
-    // ─── Error fallback ──────────────────────────────────────────────────
-
+    // --- Error fallback ---
     test('on error with no stale value, resolves to initial value', async () => {
         const cache = new PromiseCache<string>(async () => {
             await new Promise(r => setTimeout(r, 10));
@@ -107,8 +104,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(cache.getLastError('a')).toBeInstanceOf(Error);
     });
 
-    // ─── getLazy() integration ───────────────────────────────────────────
-
+    // --- getLazy() integration ---
     test('getLazy().value returns initial value before fetch', () => {
         const cache = new PromiseCache<string>(async (id) => delayedValue(10, id))
             .useInitialValue('init');
@@ -153,8 +149,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(await rp).toBe(2);
     });
 
-    // ─── Type narrowing ─────────────────────────────────────────────────
-
+    // --- Type narrowing ---
     test('without useInitialValue, getCurrent returns T | undefined', () => {
         const cache = new PromiseCache<string>(async (id) => id);
 
@@ -172,8 +167,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(val).toBe('default');
     });
 
-    // ─── invalidate() resets to initial value ────────────────────────────
-
+    // --- invalidate() resets to initial value ---
     test('after invalidate, getCurrent returns initial value', async () => {
         const cache = new PromiseCache<string>(async (id) => delayedValue(10, `fetched-${id}`))
             .useInitialValue('init');

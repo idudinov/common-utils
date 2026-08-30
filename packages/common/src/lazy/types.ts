@@ -105,10 +105,7 @@ export interface IResolvedLazyPromise<T, TInitial extends T | undefined = undefi
     readonly error: null;
 }
 
-/**
- * Controllable lazy promise with manual state management.
- * Extends ILazyPromise with methods to manually set values and reset state.
- */
+/** Controllable {@link ILazyPromise} with manual state management. */
 export interface IControllableLazyPromise<T, TInitial extends T | undefined = undefined>
     extends ILazyPromise<T, TInitial>, IResettableModel {
     /**
@@ -129,7 +126,7 @@ export interface IControllableLazyPromise<T, TInitial extends T | undefined = un
 export type LazyFactory<T> = (refreshing?: boolean) => Promise<T>;
 
 /**
- * Extension for LazyPromise instances, enabling factory wrapping and instance augmentation.
+ * Extension for {@link LazyPromise} instances, applied via `extend()`.
  *
  * @template T - Value type the extension is compatible with (use `any` for universal extensions)
  * @template TExtShape - Additional properties/methods added to the instance
@@ -149,9 +146,8 @@ export interface ILazyPromiseExtension<T = any, TExtShape extends object = objec
 
   /**
    * Augment the instance with additional properties/methods.
-   * Receives IControllableLazyPromise with setInstance() and reset() for manual control.
    *
-   * @param previous - The controllable LazyPromise instance
+   * @param previous - The {@link IControllableLazyPromise} instance being extended
    * @returns The instance with additional shape
    */
   extendShape?: <TInitial extends T | undefined = undefined>(

@@ -122,7 +122,7 @@ describe('PromiseCache getLazy', () => {
 
     test('isLoading stays false after passive (time-based) invalidation', async () => {
         const cache = new PromiseCache<string>(async id => id)
-            .useInvalidationTime(50);
+            .useInvalidation({ expirationMs: 50 });
 
         const lazy = cache.getLazy('a');
         await lazy.promise;
@@ -134,7 +134,7 @@ describe('PromiseCache getLazy', () => {
 
     describe('counts', () => {
         test('cachedCount tracks resolved items', async () => {
-            const cache = new PromiseCache<string, string>(async id => id);
+            const cache = new PromiseCache<string>(async id => id);
 
             expect(cache.cachedCount).toBe(0);
 
@@ -156,7 +156,7 @@ describe('PromiseCache getLazy', () => {
 
         test('promisesCount tracks in-flight fetches', async () => {
             const resolvers: Record<string, (v: string) => void> = {};
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => new Promise(r => { resolvers[id] = r; }),
             );
 
@@ -179,7 +179,7 @@ describe('PromiseCache getLazy', () => {
 
         test('loadingCount tracks loading items', async () => {
             const resolvers: Record<string, (v: string) => void> = {};
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => new Promise(r => { resolvers[id] = r; }),
             );
 
@@ -198,9 +198,9 @@ describe('PromiseCache getLazy', () => {
         });
 
         test('invalidCount tracks expired items', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
-            ).useInvalidationTime(50);
+            ).useInvalidation({ expirationMs: 50 });
 
             expect(cache.invalidCount).toBe(0);
 

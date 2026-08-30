@@ -1,7 +1,7 @@
 
-import { type ILogger, LoggersManager } from '../../../logger/index.js';
+import { LoggersManager } from '../../../logger/index.js';
 import { random } from '../../../math/index.js';
-import { PromiseCache } from '../index.js';
+import { createBatchingExtension, PromiseCache } from '../index.js';
 import { delayedValue, delayedError } from './helpers.js';
 import { describe, beforeEach, afterEach, test } from 'vitest';
 
@@ -29,7 +29,7 @@ describe('PromiseCache', () => {
             loaderFn();
             await delayedValue(200, undefined);
             return TEST_OBJ;
-        }, undefined, undefined);
+        });
 
         expect(cache.loadingCount).toBe(0);
 
@@ -56,53 +56,43 @@ describe('PromiseCache', () => {
         const loaderFn = vi.fn();
         const TEST_OBJ = { HELLO: 'WORLD' };
 
-        const getRes = (id: string | number) => ({ ...TEST_OBJ, id });
+        const getRes = (id: string) => ({ ...TEST_OBJ, id });
 
-        const fetcher = async (id: string | number) => {
+        const fetcher = async (id: string) => {
             loaderFn();
             await delayedValue(200, undefined);
             return getRes(id);
         };
 
-        const cacheNoAdapters = new PromiseCache(fetcher);
+        const cache = new PromiseCache(fetcher);
 
-        expect(() => cacheNoAdapters.getCurrent(null as any)).toThrow();
-        expect(() => cacheNoAdapters.getCurrent(123)).toThrow();
-        expect(cacheNoAdapters.keysParsed()).toBeNull();
-
-        const cache = new PromiseCache(
-            fetcher,
-            id => id.toString(),
-            id => +id,
-        );
-
-        const p1 = cache.get(123);
+        const p1 = cache.get('123');
         await vi.advanceTimersByTimeAsync(200);
-        await expect(p1).resolves.toStrictEqual({ ...TEST_OBJ, id: 123 });
+        await expect(p1).resolves.toStrictEqual(getRes('123'));
         expect(loaderFn).toHaveBeenCalledTimes(1);
 
         expect(cache.keys()).toStrictEqual(['123']);
         expect(Array.from(cache.keys(true))).toStrictEqual(['123']);
-        cache.invalidate(123);
+        cache.invalidate('123');
         expect(cache.keys()).toStrictEqual([]);
 
         loaderFn.mockClear();
 
         const batchLoaderFn = vi.fn();
-        const batchLoader = async (ids: number[]) => {
+        const batchLoader = async (ids: string[]) => {
             batchLoaderFn();
             await delayedValue(100, undefined);
             return ids.map(getRes);
         };
 
-        cache.useBatching(batchLoader);
+        cache.extend(createBatchingExtension(batchLoader));
 
-        const filler = new Array<number>(5).fill(0, 0, 5);
+        const filler = new Array<string>(5).fill('0').map((_, i) => i.toString());
 
         const results = Promise.all(
-            filler.map(async (_, i) => {
+            filler.map(async (id, i) => {
                 await delayedValue(10 * i, undefined);
-                return cache.get(i);
+                return cache.get(id);
             }),
         );
 
@@ -111,51 +101,47 @@ describe('PromiseCache', () => {
         await vi.advanceTimersByTimeAsync(400);
 
         await expect(results).resolves.toStrictEqual(
-            filler.map((_, i) => getRes(i)),
+            filler.map(getRes),
         );
 
-        filler.forEach((_, i) => {
-            expect(cache.hasKey(i)).toBe(true);
-            expect(cache.getCurrent(i)).toStrictEqual(getRes(i));
+        filler.forEach(id => {
+            expect(cache.hasKey(id)).toBe(true);
+            expect(cache.getCurrent(id)).toStrictEqual(getRes(id));
         });
 
         expect(batchLoaderFn).toHaveBeenCalledTimes(1);
 
-        expect(cache.getCurrent(1)).toStrictEqual(getRes(1));
+        expect(cache.getCurrent('1')).toStrictEqual(getRes('1'));
 
-        expect(cache.keys()).toStrictEqual(filler.map((_, i) => i.toString()));
-        expect(cache.keysParsed()).toStrictEqual(filler.map((_, i) => i));
-        expect(Array.from(cache.keysParsed(true)!)).toStrictEqual(filler.map((_, i) => i));
+        expect(cache.keys()).toStrictEqual(filler);
 
-        cache.invalidate(1);
+        cache.invalidate('1');
 
-        expect(cache.hasKey(1)).toBe(false);
+        expect(cache.hasKey('1')).toBe(false);
 
-        cache.set(1, getRes(1));
-        expect(cache.hasKey(1)).toBe(true);
+        cache.set('1', getRes('1'));
+        expect(cache.hasKey('1')).toBe(true);
 
-        const lazy = cache.getLazy(1);
+        const lazy = cache.getLazy('1');
         expect(lazy.currentValue).not.toBeUndefined();
         expect(lazy.isLoading).toBe(false); // status settled by set()
-        await expect(lazy.promise).resolves.toStrictEqual(getRes(1));
+        await expect(lazy.promise).resolves.toStrictEqual(getRes('1'));
     });
 
     test('fetching fails', async () => {
-        const cache = new PromiseCache<number, number>(
-            async _id => delayedError(100, new Error('Fetch failed')),
-            id => id.toString(),
-            id => +id,
-        )
-            .setLoggerFactory(createLogger, '')
-            .useBatching(async _ids => delayedError(100, new Error('Batch fetch failed')));
+        const fetcher = async (_id: string) => delayedError(100, new Error('Fetch failed')) as Promise<number>;
 
-        const p = Promise.all([cache.get(1), cache.get(2)]);
+        const cache = new PromiseCache<number>(fetcher)
+            .setLoggerFactory(createLogger, '')
+            .extend(createBatchingExtension(async (_keys: string[]) => delayedError(100, new Error('Batch fetch failed'))));
+
+        const p = Promise.all([cache.get('1'), cache.get('2')]);
         await vi.advanceTimersByTimeAsync(500);
         await expect(p).resolves.toStrictEqual([undefined, undefined]);
 
-        cache.useBatching(null!);
-
-        const p2 = cache.get(3);
+        // Without batching, a direct fetch failure resolves the same way
+        const plainCache = new PromiseCache<number>(fetcher).setLoggerFactory(createLogger, '');
+        const p2 = plainCache.get('3');
         await vi.advanceTimersByTimeAsync(100);
         await expect(p2).resolves.toBeUndefined();
     });
@@ -164,81 +150,62 @@ describe('PromiseCache', () => {
         const loaderFn = vi.fn();
         const TEST_OBJ = { HELLO: 'WORLD' };
 
-        const getRes = (id: string | number) => ({ ...TEST_OBJ, id });
+        const getRes = (id: string) => ({ ...TEST_OBJ, id });
 
-        const fetcher = async (id: string | number) => {
+        const fetcher = async (id: string) => {
             loaderFn();
             return delayedValue(200, getRes(id));
         };
 
-        const cache = new PromiseCache(
-            fetcher,
-            id => id.toString(),
-            id => +id,
-        );
+        const cache = new PromiseCache(fetcher);
 
         const batchError = new Error('Batching failed in test');
 
         const batchLoaderFn = vi.fn();
-        const batchLoader = async (_ids: number[]) => {
+        const batchLoader = async (_ids: string[]) => {
             batchLoaderFn();
             return delayedError(100, batchError);
         };
 
-        cache.useBatching(batchLoader);
+        cache.extend(createBatchingExtension(batchLoader));
 
-        const logger: ILogger = {
-            log: vi.fn(),
-            error: vi.fn(),
-            warn: vi.fn(),
-        };
-        cache.setLogger(logger);
-
-        const filler = new Array<number>(5).fill(0, 0, 5);
+        const filler = new Array<string>(5).fill('0').map((_, i) => i.toString());
 
         const results = Promise.all(
-            filler.map(async (_, i) => {
+            filler.map(async (id, i) => {
                 await delayedValue(10 * i, undefined);
-                return cache.get(i);
+                return cache.get(id);
             }),
         );
 
         await vi.advanceTimersByTimeAsync(600);
 
         await expect(results).resolves.toStrictEqual(
-            filler.map((_, i) => getRes(i)),
+            filler.map(getRes),
         );
 
+        // Batch call fails once; every key falls back to the individual fetcher
         expect(batchLoaderFn).toHaveBeenCalledTimes(1);
         expect(loaderFn).toHaveBeenCalledTimes(5);
-
-        expect(logger.warn).toHaveBeenCalledTimes(5);
-        for (let i = 0; i < 5; ++i) {
-            expect(logger.warn).toHaveBeenCalledWith('batch fetch failed', i, batchError);
-        }
     });
 
     test('continuos batching', async () => {
-        const getRes = (id: string | number) => ({ id });
+        const getRes = (id: string) => ({ id });
 
-        const fetcher = vi.fn(async (id: string | number) => {
+        const fetcher = vi.fn(async (id: string) => {
             return delayedValue(10, getRes(id));
         });
 
-        const cache = new PromiseCache(
-            fetcher,
-            id => id.toString(),
-            id => +id,
-        );
+        const cache = new PromiseCache(fetcher);
 
-        const batchLoader = vi.fn(async (ids: number[]) => {
+        const batchLoader = vi.fn(async (ids: string[]) => {
             return delayedValue(50, ids.map(getRes));
         });
 
-        cache.useBatching(batchLoader, 50);
+        cache.extend(createBatchingExtension(batchLoader, 50));
 
         const doRequests = (base = 1, delay = 10) => {
-            const ids = Array.from({ length: 10 }).map((_, i) => i + base);
+            const ids = Array.from({ length: 10 }).map((_, i) => (i + base).toString());
 
             const results = Promise.all(
                 ids.map(async id => {
@@ -266,36 +233,34 @@ describe('PromiseCache', () => {
     });
 
     test('clears', async () => {
-        const cache = new PromiseCache<number, number>(
-            async id => delayedValue(200, id),
-            id => id.toString(),
-            id => +id,
+        const cache = new PromiseCache<number>(
+            async id => delayedValue(200, Number(id)),
         ).setLoggerFactory(createLogger, 'test');
 
-        expect(cache.hasKey(1)).toBe(false);
+        expect(cache.hasKey('1')).toBe(false);
 
-        const p1 = cache.get(1);
+        const p1 = cache.get('1');
 
         await vi.advanceTimersByTimeAsync(50);
 
-        expect(cache.hasKey(1)).toBe(true);
+        expect(cache.hasKey('1')).toBe(true);
 
         cache.clear();
 
-        expect(cache.hasKey(1)).toBe(false);
+        expect(cache.hasKey('1')).toBe(false);
 
         await vi.advanceTimersByTimeAsync(200);
         await expect(p1).resolves.toBe(1);
 
-        expect(cache.getCurrent(1, false)).toBeUndefined();
+        expect(cache.getCurrent('1', false)).toBeUndefined();
     });
 
     test('auto-invalidation', async () => {
         const generator = vi.fn(() => random(0, 10000));
 
-        const cache = new PromiseCache<string, string>(
+        const cache = new PromiseCache<string>(
             async id => delayedValue(50, `${id}_${generator()}`),
-        ).useInvalidationTime(100);
+        ).useInvalidation({ expirationMs: 100 });
 
         const checkGenerator = (times: number) => {
             expect(generator).toHaveBeenCalledTimes(times);
@@ -327,7 +292,7 @@ describe('PromiseCache', () => {
         await expect(p3).resolves.toBeTruthy();
         checkGenerator(1);
 
-        cache.useInvalidationTime(100);
+        cache.useInvalidation({ expirationMs: 100 });
 
         const previous = cache.getCurrent('1');
         expect(previous).toBeTruthy();

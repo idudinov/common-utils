@@ -13,8 +13,7 @@ describe('PromiseCache.refresh', () => {
         vi.useRealTimers();
     });
 
-    // ─── Basic refresh ──────────────────────────────────────────────────
-
+    // --- Basic refresh ---
     test('basic refresh updates the cached value', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter));
@@ -30,8 +29,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.getCurrent('a', false)).toBe(2);
     });
 
-    // ─── Stale-while-revalidate ─────────────────────────────────────────
-
+    // --- Stale-while-revalidate ---
     test('stale value remains readable during refresh', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
@@ -53,8 +51,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.getCurrent('a', false)).toBe(2);
     });
 
-    // ─── Fetch running → refresh → initial fetch gets fresh value ───────
-
+    // --- Fetch running → refresh → initial fetch gets fresh value ---
     test('when existing fetch is running, refresh initiates new promise and initial fetch returns fresh value', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
@@ -78,8 +75,7 @@ describe('PromiseCache.refresh', () => {
         expect(counter).toBe(2);
     });
 
-    // ─── No value → refresh → get() joins existing refresh ──────────────
-
+    // --- No value → refresh → get() joins existing refresh ---
     test('if there was no value, refresh initiates fetch, and get() joins existing refresh', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
@@ -100,8 +96,7 @@ describe('PromiseCache.refresh', () => {
         expect(counter).toBe(1); // only one fetch happened
     });
 
-    // ─── Subsequent refresh → both return same fresh value ──────────────
-
+    // --- Subsequent refresh → both return same fresh value ---
     test('calling subsequent refresh initiates 2nd promise, both refreshes return the same fresh value', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
@@ -130,8 +125,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.getCurrent('a', false)).toBe(3);
     });
 
-    // ─── Multiple concurrent refreshes with varying delays ──────────────
-
+    // --- Multiple concurrent refreshes with varying delays ---
     test('multiple concurrent refreshes - latest wins (fast-to-slow delays)', async () => {
         const delays = [100, 50, 20];
         let callIndex = 0;
@@ -194,8 +188,7 @@ describe('PromiseCache.refresh', () => {
         expect(r2).toBe(4);
     });
 
-    // ─── Error handling: async throw ────────────────────────────────────
-
+    // --- Error handling: async throw ---
     test('async throw during refresh preserves stale value and stores error', async () => {
         let shouldFail = false;
         let counter = 0;
@@ -248,8 +241,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.getLastError('a')).toBeInstanceOf(Error);
     });
 
-    // ─── Error handling: sync throw ─────────────────────────────────────
-
+    // --- Error handling: sync throw ---
     test('sync throw in factory during initial fetch is handled', async () => {
         // Non-async factory: throw is truly synchronous (before any promise is created)
         const cache = new PromiseCache<string>(((() => {
@@ -289,8 +281,7 @@ describe('PromiseCache.refresh', () => {
         expect((cache.getLastError('a') as Error).message).toBe('sync refresh error');
     });
 
-    // ─── Error during concurrent refresh ────────────────────────────────
-
+    // --- Error during concurrent refresh ---
     test('error during 2nd refresh while 1st is in-flight', async () => {
         let callCount = 0;
         const cache = new PromiseCache<number>(async () => {
@@ -329,8 +320,7 @@ describe('PromiseCache.refresh', () => {
         expect(r1).toBe(1);
     });
 
-    // ─── getLazy().refresh() delegates to PromiseCache.refresh() ────────
-
+    // --- getLazy().refresh() delegates to PromiseCache.refresh() ---
     test('getLazy().refresh() uses PromiseCache.refresh()', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter));
@@ -353,8 +343,7 @@ describe('PromiseCache.refresh', () => {
         expect(lazy.value).toBe(2);
     });
 
-    // ─── Refreshing flag ────────────────────────────────────────────────
-
+    // --- Refreshing flag ---
     test('fetcher receives refreshing=false on initial get, refreshing=true on refresh', async () => {
         const fetcher = vi.fn(async (id: string, refreshing?: boolean) => {
             await new Promise(r => setTimeout(r, 10));
@@ -378,8 +367,7 @@ describe('PromiseCache.refresh', () => {
         expect(fetcher).toHaveBeenCalledWith('a', true);
     });
 
-    // ─── get() during in-flight refresh with existing value ─────────────
-
+    // --- get() during in-flight refresh with existing value ---
     test('get() during in-flight refresh returns stale value immediately (no new fetch)', async () => {
         let counter = 0;
         const fetcher = vi.fn(async () => delayedValue(50, ++counter));
@@ -416,8 +404,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.getCurrent('a', false)).toBe(2);
     });
 
-    // ─── clear() during refresh ─────────────────────────────────────────
-
+    // --- clear() during refresh ---
     test('clear() during refresh prevents stale result from being stored', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
@@ -443,8 +430,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.cachedCount).toBe(0);
     });
 
-    // ─── loadingCount correctness with superseded fetches ────────────────
-
+    // --- loadingCount correctness with superseded fetches ---
     test('loadingCount returns to 0 after concurrent refreshes complete', async () => {
         const cache = new PromiseCache<number>(async () => {
             await new Promise(r => setTimeout(r, 30));
@@ -496,8 +482,7 @@ describe('PromiseCache.refresh', () => {
         expect(cache.loadingCount).toBe(0);
     });
 
-    // ─── set() during in-flight fetch ────────────────────────────────────
-
+    // --- set() during in-flight fetch ---
     test('set() during in-flight fetch cancels the fetch (value is not overwritten)', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));

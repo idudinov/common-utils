@@ -86,7 +86,6 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return state !== null && state !== 'resolved' && state !== 'failed' ? state : null;
     }
 
-    /** @inheritdoc */
     public hasResolvedValue(): this is LazyPromise<T, TInitial> & IResolvedLazyPromise<T, TInitial> {
         return this.hasValue;
     }
@@ -133,31 +132,12 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     /**
-     * Extends this instance with additional functionality via in-place mutation.
+     * Extends this instance with additional functionality via in-place mutation, per the given
+     * {@link ILazyPromiseExtension}. Extensions chain: calling `extend()` again wraps on top of
+     * the previous one, in the order they were applied.
      *
-     * **Capabilities:**
-     * - `overrideFactory`: Wrap the factory (logging, retry, caching, etc.)
-     * - `extendShape`: Add custom properties/methods
-     * - `dispose`: Cleanup resources when disposed
-     *
-     * **Type Safety:**
-     * - Use `ILazyPromiseExtension<any>` for universal extensions
-     * - Use `ILazyPromiseExtension<ConcreteType>` for type-specific extensions
-     *
-     * **Note:** Extensions mutate the instance and can be chained.
-     *
-     * @param extension - Extension configuration
-     * @returns The same instance with applied extensions
-     *
-     * @example
-     * ```typescript
-     * const logged = lazy.extend({
-     *   overrideFactory: (factory) => async (refreshing) => {
-     *     console.log('Loading...');
-     *     return await factory(refreshing);
-     *   }
-     * });
-     * ```
+     * @param extension Extension configuration.
+     * @returns The same instance, typed with the extension's shape additions if any.
      */
     public extend<TExtShape extends object = object>(
         // Partial allows extensions with extra properties beyond the interface

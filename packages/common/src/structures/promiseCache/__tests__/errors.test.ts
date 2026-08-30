@@ -17,7 +17,7 @@ describe('PromiseCache errors', () => {
         test('stores and retrieves errors per key', async () => {
             const fetchError = new Error('Fetch failed');
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => {
                     if (id === 'fail') throw fetchError;
                     return id;
@@ -36,7 +36,7 @@ describe('PromiseCache errors', () => {
         test('getLazy exposes error', async () => {
             const fetchError = new Error('Lazy error');
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => {
                     if (id === 'fail') throw fetchError;
                     return id;
@@ -53,12 +53,12 @@ describe('PromiseCache errors', () => {
         test('error is cleared on successful re-fetch', async () => {
             let shouldFail = true;
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => {
                     if (shouldFail) throw new Error('fail');
                     return id;
                 },
-            ).useInvalidationTime(50);
+            ).useInvalidation({ expirationMs: 50 });
 
             await cache.get('a');
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
@@ -71,7 +71,7 @@ describe('PromiseCache errors', () => {
         });
 
         test('error is cleared on invalidate', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async () => { throw new Error('fail'); },
             );
 
@@ -83,7 +83,7 @@ describe('PromiseCache errors', () => {
         });
 
         test('error is cleared on clear', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async () => { throw new Error('fail'); },
             );
 
@@ -95,7 +95,7 @@ describe('PromiseCache errors', () => {
         });
 
         test('a slow fetch that fails after a concurrent refresh() already succeeded does not overwrite the newer state', async () => {
-            const cache = new PromiseCache<number, string>(
+            const cache = new PromiseCache<number>(
                 async (_id, refreshing) => refreshing
                     ? delayedValue(11, 42)
                     : delayedError(100, new Error('stale fetch failed')),
@@ -118,7 +118,7 @@ describe('PromiseCache errors', () => {
         });
 
         test('clear resets all state including errors', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async () => { throw new Error('fail'); },
             );
 
@@ -141,7 +141,7 @@ describe('PromiseCache errors', () => {
                 throw new Error('always fails');
             });
 
-            const cache = new PromiseCache<string, string>(fetcher);
+            const cache = new PromiseCache<string>(fetcher);
 
             // First get() — triggers fetch, which fails
             await cache.get('a');
@@ -162,7 +162,7 @@ describe('PromiseCache errors', () => {
                 throw new Error('always fails');
             });
 
-            const cache = new PromiseCache<string, string>(fetcher);
+            const cache = new PromiseCache<string>(fetcher);
 
             await cache.get('a');
             expect(fetcher).toHaveBeenCalledTimes(1);
@@ -178,7 +178,7 @@ describe('PromiseCache errors', () => {
                 throw new Error('always fails');
             });
 
-            const cache = new PromiseCache<string, string>(fetcher)
+            const cache = new PromiseCache<string>(fetcher)
                 .useInitialValue('fallback');
 
             await cache.get('a');
@@ -192,7 +192,7 @@ describe('PromiseCache errors', () => {
 
         test('refresh() after sticky error DOES re-fetch', async () => {
             let callCount = 0;
-            const cache = new PromiseCache<string, string>(async () => {
+            const cache = new PromiseCache<string>(async () => {
                 callCount++;
                 if (callCount === 1) throw new Error('first call fails');
                 return 'success';
@@ -212,7 +212,7 @@ describe('PromiseCache errors', () => {
 
         test('invalidate() + get() after error DOES re-fetch', async () => {
             let callCount = 0;
-            const cache = new PromiseCache<string, string>(async () => {
+            const cache = new PromiseCache<string>(async () => {
                 callCount++;
                 if (callCount === 1) throw new Error('first call fails');
                 return 'success';
@@ -238,7 +238,7 @@ describe('PromiseCache errors', () => {
                 throw new Error('always fails');
             });
 
-            const cache = new PromiseCache<string, string>(fetcher);
+            const cache = new PromiseCache<string>(fetcher);
 
             // Call get() multiple times
             await cache.get('a');
@@ -256,7 +256,7 @@ describe('PromiseCache errors', () => {
                 throw new Error('always fails');
             });
 
-            const cache = new PromiseCache<string, string>(fetcher);
+            const cache = new PromiseCache<string>(fetcher);
 
             const lazy = cache.getLazy('a');
             await lazy.promise;
@@ -274,7 +274,7 @@ describe('PromiseCache errors', () => {
             const fetchError = new Error('Fetch failed');
             const onError = vi.fn();
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async () => { throw fetchError; },
             ).useOnError(onError);
 
@@ -287,7 +287,7 @@ describe('PromiseCache errors', () => {
         test('does not call onError on success', async () => {
             const onError = vi.fn();
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useOnError(onError);
 
@@ -296,7 +296,7 @@ describe('PromiseCache errors', () => {
         });
 
         test('ignores errors thrown by onError callback', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async () => { throw new Error('fetch error'); },
             ).useOnError(() => { throw new Error('callback error'); });
 
@@ -304,24 +304,10 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
         });
 
-        test('receives original key type for non-string keys', async () => {
-            const onError = vi.fn();
-
-            const cache = new PromiseCache<string, number>(
-                async () => { throw new Error('fail'); },
-                id => id.toString(),
-                id => +id,
-            ).useOnError(onError);
-
-            await cache.get(42);
-
-            expect(onError).toHaveBeenCalledWith(42, expect.any(Error));
-        });
-
         test('can be removed with null', async () => {
             const onError = vi.fn();
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async () => { throw new Error('fail'); },
             ).useOnError(onError);
 
