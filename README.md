@@ -12,4 +12,45 @@ A monorepo for Zajno's internal tools and utilities.
 
 ## Shared task runner
 
-[`packages/scripts`](./packages/scripts) is a private, unpublished workspace exposing a single `task` bin (backed by TypeScript run directly via Node's built-in type stripping). Each leaf package's `scripts` block proxies to it, e.g. `"build": "task build"`, so the shell command for every task lives once in [`packages/scripts/tasks.json`](./packages/scripts/tasks.json) instead of being duplicated per package.
+All build/test/lint commands live in one place: [`packages/scripts`](./packages/scripts), a private workspace with a single `task` bin (TypeScript, run by Node directly). Each package's npm scripts proxy to it, e.g. `"build": "task build"`.
+
+### Usage
+
+- Run tasks from a package dir: `npm run <task>`.
+- Do not call `tsc` / `vitest` / `eslint` directly — the tasks carry the right configs.
+- Args after `--` are passed to the underlying command. Example — run one test:
+
+```sh
+npm run test -- src/lazy/__tests__/promise.test.ts -t "test name"
+```
+
+### Tasks
+
+Defined in [`tasks.json`](./packages/scripts/tasks.json); these forward extra args.
+
+| Task | Command |
+| --- | --- |
+| `build` | `tsc -b tsconfig.dist.json` |
+| `check` | `tsc -p tsconfig.json --noEmit` |
+| `lint` | `eslint src/**/*.ts?(x)` |
+| `test` | `vitest run --coverage` |
+| `dev` (alias `build:w`) | `tsc -b --watch` |
+| `clean` | `rimraf ./dist *.tsbuildinfo` |
+
+### Actions
+
+Implemented in [`actions.ts`](./packages/scripts/actions.ts), run in-process:
+
+- `bundle` — copies LICENSE, package.json, and READMEs into `dist/`, then regenerates its `exports` map.
+- `update-exports` — regenerates the package's `exports` map from `src/`.
+- `check:versions` — checks that dependency versions match across packages.
+
+### Composites
+
+Sequences of the above; these do not forward args.
+
+- `build:clean` — clean, build
+- `build:full` — build:clean, lint, test
+- `check:publish` — build:clean, bundle, publint, attw
+- `publish:local` — build:full, bundle, yalc push from `dist/`
+- `publish:from-dist` — build:full, bundle, npm publish from `dist/`

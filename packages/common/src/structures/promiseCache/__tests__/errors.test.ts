@@ -1,6 +1,7 @@
 
 import { PromiseCache } from '../index.js';
 import { describe, beforeEach, afterEach, test } from 'vitest';
+import { delayedError, delayedValue } from './helpers.js';
 
 describe('PromiseCache errors', () => {
 
@@ -91,6 +92,29 @@ describe('PromiseCache errors', () => {
 
             cache.clear();
             expect(cache.getLastError('a')).toBeNull();
+        });
+
+        test('a slow fetch that fails after a concurrent refresh() already succeeded does not overwrite the newer state', async () => {
+            const cache = new PromiseCache<number, string>(
+                async (_id, refreshing) => refreshing
+                    ? delayedValue(11, 42)
+                    : delayedError(100, new Error('stale fetch failed')),
+            );
+
+            const p1 = cache.get('a');
+            const p2 = cache.refresh('a');
+
+            await vi.advanceTimersByTimeAsync(11);
+            await p2;
+            expect(cache.getCurrent('a', false)).toBe(42);
+            expect(cache.getLastError('a')).toBeNull();
+
+            await vi.advanceTimersByTimeAsync(89); // let the superseded fetch reject at t=100
+            await p1;
+
+            expect(cache.getLastError('a')).toBeNull();
+            expect(cache.getCurrent('a', false)).toBe(42);
+            expect(cache.getLazy('a').hasValue).toBe(true);
         });
 
         test('clear resets all state including errors', async () => {

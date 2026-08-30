@@ -21,7 +21,7 @@ function bundle() {
     // nested module READMEs ship with the package so docs are readable from node_modules
     const src = path.join(cwd, 'src');
     if (fs.existsSync(src)) {
-        for (const rel of fs.readdirSync(src, { recursive: true }) as string[]) {
+        for (const rel of fs.readdirSync(src, { recursive: true, encoding: 'utf8' })) {
             if (path.basename(rel) !== 'README.md') {
                 continue;
             }

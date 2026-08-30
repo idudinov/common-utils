@@ -1,4 +1,5 @@
 import { LazyPromise } from '../promise.js';
+import { ExpireTracker } from '../../structures/expire.js';
 
 describe('LazyPromise refresh', () => {
 
@@ -138,6 +139,54 @@ describe('LazyPromise refresh', () => {
         expect((lazy.error as Error).message).toBe('Sync initial error');
         expect(lazy.hasValue).toBeFalse();
         expect(lazy.value).toBeUndefined();
+    });
+
+    test('failed lazy with no initial value retries the factory after the tracker expires', async () => {
+        let shouldFail = true;
+        const factory = vi.fn(async () => {
+            if (shouldFail) {
+                throw new Error('fail');
+            }
+            return 42;
+        });
+
+        const lazy = new LazyPromise(factory).withExpire(new ExpireTracker(1000));
+
+        await lazy.promise;
+        expect(lazy.error).toBeInstanceOf(Error);
+        expect(lazy.hasValue).toBeFalse();
+        expect(factory).toHaveBeenCalledTimes(1);
+
+        shouldFail = false;
+        const result = await lazy.promise;
+
+        expect(factory).toHaveBeenCalledTimes(2);
+        expect(result).toBe(42);
+        expect(lazy.hasValue).toBeTrue();
+    });
+
+    test('refresh after a failed refresh with a kept stale value classifies as refreshing', async () => {
+        let fail = false;
+        const lazy = new LazyPromise(async () => {
+            if (fail) {
+                throw new Error('fail');
+            }
+            return 1;
+        });
+
+        await lazy.promise;
+        fail = true;
+        await lazy.refresh();
+        expect(lazy.error).toBeInstanceOf(Error);
+        expect(lazy.value).toBe(1);
+
+        fail = false;
+        const p = lazy.refresh();
+        expect(lazy.pendingState).toBe('refreshing');
+
+        await p;
+        expect(lazy.pendingState).toBeNull();
+        expect(lazy.error).toBeNull();
     });
 
     test('refresh during initial load - refresh wins', async () => {

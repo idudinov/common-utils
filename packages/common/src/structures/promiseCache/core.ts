@@ -1,4 +1,4 @@
-import { deriveIsLoading } from '../../lazy/loadingState.js';
+import { deriveIsLoading, viewLoadingState } from '../../lazy/loadingState.js';
 import type { ILazyPromise, IResolvedLazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import { Loggable } from '../../logger/loggable.js';
 import { Model } from '../../models/Model.js';
@@ -163,31 +163,29 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     getLazy(key: K, strategy?: LoadingStateStrategy): ILazyPromise<T, TInitial> {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         const self = this;
-        const lazy: ILazyPromise<T, TInitial> = {
-            get value() { return self.getCurrent(key); },
-            get currentValue() { return self.getCurrent(key, false); },
+        const k = self._pk(key);
+        const handle: ILazyPromise<T, TInitial> = {
+            get value() { return self._getCurrentByKey(k, key, true); },
+            get currentValue() { return self._getCurrentByKey(k, key, false); },
             get hasValue() {
-                const k = self._pk(key);
                 return self._itemsCache.has(k) && !self._errorsMap.has(k);
             },
-            get error() { return self.getLastError(key); },
+            get error() { return self._getLastErrorByKey(k); },
             get isLoading() {
-                return self.getIsLoading(key, strategy);
+                return self._getIsLoadingByKey(k);
             },
             get pendingState(): PendingLoadState | null {
-                const k = self._pk(key);
-                const status = self._itemsStatus.get(k);
-                return status ? status : null;
+                return self._itemsStatus.get(k) || null;
             },
             get promise() { return self.get(key); },
             refresh() {
                 return self.refresh(key);
             },
             hasResolvedValue(this: ILazyPromise<T, TInitial>): this is IResolvedLazyPromise<T, TInitial> {
-                return lazy.hasValue;
+                return handle.hasValue;
             },
         };
-        return lazy;
+        return strategy ? viewLoadingState(handle, strategy) : handle;
     }
 
     /**
@@ -196,18 +194,19 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
      * Derived at read time from the pending kind per {@link useLoadingState}, so a strategy change
      * applies to fetches already in flight.
      *
-     * @param strategy Optional override consulted before the cache-level strategy; unnamed pending
-     * states fall through to it.
      * @returns Strategy-derived value while a fetch is in flight; `false` once settled and valid;
      * `null` if never started, or after an explicit `invalidate()`.
      */
-    getIsLoading(id: K, strategy?: LoadingStateStrategy): boolean | null {
-        const key = this._pk(id);
+    getIsLoading(id: K): boolean | null {
+        return this._getIsLoadingByKey(this._pk(id));
+    }
+
+    private _getIsLoadingByKey(key: string): boolean | null {
         const res = this._itemsStatus.get(key);
         if (res) {
-            return deriveIsLoading(res, strategy, this._loadingStrategy);
+            return deriveIsLoading(res, this._loadingStrategy);
         }
-        return res === false ? false : null;
+        return res ?? null;
     }
 
     /**
@@ -226,13 +225,19 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
      * @returns The raw error, or null if no error.
      */
     getLastError(id: K): unknown {
-        const key = this._pk(id);
+        return this._getLastErrorByKey(this._pk(id));
+    }
+
+    private _getLastErrorByKey(key: string): unknown {
         return this._errorsMap.get(key) ?? null;
     }
 
     /** Returns the current cached value, optionally triggering a fetch. Falls back to the initial value if configured. */
     getCurrent(id: K, initiateFetch = true): T | TInitial {
-        const key = this._pk(id);
+        return this._getCurrentByKey(this._pk(id), id, initiateFetch);
+    }
+
+    private _getCurrentByKey(key: string, id: K, initiateFetch: boolean): T | TInitial {
         if (initiateFetch) {
             this.get(id);
         }
@@ -420,7 +425,7 @@ export abstract class PromiseCacheCore<T, K = string, TInitial extends T | undef
     protected onFetchComplete(key: string) {
         this._loadingCount.value = this._loadingCount.value - 1;
         this._fetchCache.delete(key);
-        this._itemsStatus.set(key, false);
+        this.setStatus(key, false);
     }
 
     /** Hooks into the superseded fetch cleanup. Only decrements loading count — does not touch fetch cache or status. */

@@ -55,6 +55,8 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
             _deleteKey: action,
             clear: action,
             sanitize: action,
+            set: action,
+            invalidate: action,
             _loadingStrategy: observable.ref,
             useLoadingState: action,
         });

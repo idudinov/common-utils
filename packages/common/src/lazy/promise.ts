@@ -1,7 +1,7 @@
 import { tryDispose, type IDisposable } from '../functions/disposer.js';
 import type { IResettableModel } from '../models/types.js';
 import type { IExpireTracker } from '../structures/expire.js';
-import { deriveIsLoading, viewLoadingState } from './loadingState.js';
+import { deriveIsLoading, passivePendingKind, refreshPendingKind, viewLoadingState } from './loadingState.js';
 import type {
     IControllableLazyPromise,
     ILazyPromise,
@@ -38,9 +38,6 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     private _loadingStrategy: LoadingStateStrategy | undefined;
 
     private _isAsyncStateChange = false;
-
-    /** Bumped on every `updateState()` call; invalidates deferred writes scheduled before a state change that already settled. */
-    private _stateEpoch = 0;
 
     private _promise: Promise<T | TInitial> | undefined;
     private _expireTracker: IExpireTracker | undefined;
@@ -236,15 +233,18 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return this._promise!;
     }
 
-    /** Applies a state transition immediately, or deferred (per `withAsyncStateChange`) unless superseded before the microtask runs. */
+    /**
+     * Applies a state transition immediately, or deferred (per `withAsyncStateChange`) unless a newer
+     * factory promise has replaced the one active when this write was scheduled.
+     */
     private applyState(next: LazyPromiseState) {
         if (!this._isAsyncStateChange) {
             this.updateState(next);
             return;
         }
-        const epoch = this._stateEpoch;
+        const active = this._activeFactoryPromise;
         Promise.resolve().then(() => {
-            if (this._stateEpoch === epoch) {
+            if (this._activeFactoryPromise === active) {
                 this.updateState(next);
             }
         });
@@ -252,17 +252,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     /** A load already in flight keeps its classification; otherwise it's derived from the last settled state. */
     private refreshTargetState(): PendingLoadState {
-        const state = this._state;
-        switch (state) {
-            case null:
-            case 'failed':
-                return 'loading';
-            case 'resolved':
-            case 'revalidating':
-                return 'refreshing';
-            default:
-                return state;
-        }
+        // a kept stale value counts even when the last refresh errored, so `hasValue` (error-sensitive) doesn't fit here
+        const carriesValue = this._state === 'resolved' || this._state === 'revalidating';
+        return refreshPendingKind(this.pendingState, carriesValue);
     }
 
     public reset() {
@@ -296,13 +288,12 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
         if (this._state === null) {
             nextState = 'loading';
-        } else if (
-            (this._state === 'resolved' || this._state === 'failed')
-            && this._instance !== undefined
-            && this._expireTracker?.isExpired
-        ) {
-            // nothing resolved to revalidate after a failure
-            nextState = this._state === 'resolved' ? 'revalidating' : 'loading';
+        } else if (this._expireTracker?.isExpired && (this._state === 'resolved' || this._state === 'failed')) {
+            const hasValue = this._state === 'resolved' && this._instance !== undefined;
+            // a failed load with no instance still retries; a resolved load only revalidates once it has something to keep showing
+            if (hasValue || this._state === 'failed') {
+                nextState = passivePendingKind(hasValue);
+            }
         }
 
         if (nextState !== undefined) {
@@ -383,7 +374,6 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     protected updateState(state: LazyPromiseState) {
         this._state = state;
-        this._stateEpoch++;
     }
 
     protected setError(err: unknown) {

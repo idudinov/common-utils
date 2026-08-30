@@ -351,6 +351,32 @@ describe('PromiseCache observable', () => {
         expect(cache.cachedCount).toBe(0);
     });
 
+    it('set()/invalidate() are actions — mutating the observed _fetchCache while a fetch is in flight does not warn under enforceActions', async () => {
+        configure({ enforceActions: 'observed' });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        try {
+            const cache = new PromiseCacheObservable<number, string>(
+                () => new Promise<number>(() => { /* never settles */ }),
+            );
+
+            const stop = autorun(() => { void cache.promisesCount; });
+
+            cache.get('a'); // starts an in-flight fetch, tracked via promisesCount
+
+            cache.set('a', 42);
+            expect(cache.getCurrent('a', false)).toBe(42);
+            expect(cache.promisesCount).toBe(0);
+
+            cache.invalidate('a');
+
+            stop();
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+            configure({ enforceActions: 'never' });
+        }
+    });
+
     it('getLazy() error is observable', async () => {
         const fetchError = new Error('Deferred observable error');
 

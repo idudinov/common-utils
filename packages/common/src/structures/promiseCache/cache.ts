@@ -1,5 +1,5 @@
 import { DebounceProcessor } from '../../functions/debounce.js';
-import type { PendingLoadState } from '../../lazy/types.js';
+import { passivePendingKind, refreshPendingKind } from '../../lazy/loadingState.js';
 import { PromiseCacheCore } from './core.js';
 import type { ErrorCallback, InvalidationConfig, PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from './types.js';
 
@@ -119,9 +119,10 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
      */
     get(id: K): Promise<T | TInitial> {
         const key = this._pk(id);
+        const hasCached = this._itemsCache.has(key);
 
         // return cached item if it's not invalidated
-        if (this._itemsCache.has(key) && !this.getIsInvalidated(key)) {
+        if (hasCached && !this.getIsInvalidated(key)) {
             const item = this._itemsCache.get(key)!;
             this.logger.log(key, 'get: item resolved to', item);
             return Promise.resolve(item);
@@ -142,8 +143,7 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
             return Promise.resolve(this._getInitialValue(id));
         }
 
-        const kind: PendingLoadState = this._itemsCache.has(key) ? 'revalidating' : 'loading';
-        this.setStatus(key, kind);
+        this.setStatus(key, passivePendingKind(hasCached));
 
         promise = this._doFetchAsync(id, key, false);
 
@@ -166,13 +166,8 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
     refresh(id: K): Promise<T | TInitial> {
         const key = this._pk(id);
 
-        // 'loading'/'refreshing' in flight keep their classification; a passive 'revalidating' is
-        // escalated — an explicit refresh() is a stronger signal. Otherwise derived from cached state.
-        const current = this._itemsStatus.get(key);
-        const kind: PendingLoadState = (current === 'loading' || current === 'refreshing')
-            ? current
-            : (this._itemsCache.has(key) ? 'refreshing' : 'loading');
-        this.setStatus(key, kind);
+        const current = this._itemsStatus.get(key) || null;
+        this.setStatus(key, refreshPendingKind(current, this._itemsCache.has(key)));
 
         const promise = this._doFetchAsync(id, key, true);
 
@@ -234,6 +229,8 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
      * - Tracks the active factory promise per key via `_activeFetchPromises`.
      * - If superseded by a newer fetch, delegates to the newer promise.
      * - On error, preserves the stale cached value.
+     * - The error is recorded only once classification is known — a superseded/cancelled fetch's
+     *   error is discarded rather than overwriting a newer fetch's already-settled state.
      *
      * @param id The original key.
      * @param key The string cache key.
@@ -250,12 +247,11 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
             const factoryPromise = this.tryFetchInBatch(id, refreshing);
             this._activeFetchPromises.set(key, factoryPromise);
 
-            let fetchResult: { ok: true; value: T } | { ok: false };
+            let fetchResult: { ok: true; value: T } | { ok: false; error: unknown };
             try {
                 fetchResult = { ok: true, value: await factoryPromise };
             } catch (err) {
-                this._handleError(id, err);
-                fetchResult = { ok: false };
+                fetchResult = { ok: false, error: err };
             }
 
             if (v !== this._version) {
@@ -295,8 +291,9 @@ export class PromiseCache<T, K = string, TInitial extends T | undefined = undefi
                 return res;
             }
 
-            // Fetch failed — record timestamp for time-based invalidation expiry,
-            // and return stale value or initial.
+            // Fetch failed — record the error and a timestamp for time-based invalidation expiry,
+            // then return stale value or initial.
+            this._handleError(id, fetchResult.error);
             this._timestamps.set(key, Date.now());
             return this._getCachedOrInitial(key, id);
         } finally {
