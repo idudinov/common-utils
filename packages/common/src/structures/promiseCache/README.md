@@ -178,6 +178,27 @@ import { createRetryExtension } from '@zajno/common/structures/promiseCache';
 cache.extend(createRetryExtension({ retries: 3, delay: 1000, backoffMultiplier: 2 }));
 ```
 
+### Live subscriptions — createSubscriptionExtension
+
+Adapts a live source — `(key, emit) => DisposeFunction | Promise<DisposeFunction>` — into a fetcher: the first emission resolves the fetch, later ones update the cached value. The source must emit at least once or fail; one that never does leaves the fetch pending.
+
+```ts
+import { createSubscriptionExtension } from '@zajno/common/structures/promiseCache';
+
+const live = createSubscriptionExtension<User>(subscribeToUser, 'forever');
+const users = new PromiseCache<User>(live.fetch).extend(live);
+```
+
+`policy` (default `'forever'`) sets the subscription's lifetime after the first emission:
+
+- `'off'` — unsubscribe right away: a one-shot fetch.
+- `'forever'` — keep it until `invalidate`/`clear`/`dispose`.
+- `{ ttlMs }` — keep it for `ttlMs` since the last emission, then unsubscribe and invalidate the key, so the next read re-subscribes. `SHORT_SUBSCRIPTION_TTL_MS` is a ready-made 5 minutes.
+
+It replaces the cache's fetcher instead of wrapping it and owns that cache's subscriptions, so create one instance per cache and apply it before the first fetch — `fetch` on its own rejects.
+
+To merge an emission into the current value instead of replacing it, wrap `emit` and merge against `cache.getCurrent(key, false)`, or use `prepareValue`.
+
 ### Writing a custom extension
 
 A read-through/write-through persistence extension, shaped like a typical retry-or-cache-backed API layer:

@@ -12,7 +12,7 @@ All runtime dependencies are peer.
 
 * [ViewModels]('./src/viewModels/index.ts') – useful for MVVM pattern
 
-* Structures for caching & observing: [`PromiseCacheObservable`](./src/structures/promiseCache.ts) — a thin `PromiseCache` preset wired to a mobx storage provider (also exported standalone as `mobxStorageProvider`, for composing custom presets), [`SubscribersMap`](./src/structures/subscribersMap.ts), [`SubscribersPromiseCache`](./src/structures/subscribersPromiseCache.ts)
+* Structures for caching & observing: [`PromiseCacheObservable`](./src/structures/promiseCache.ts) — a thin `PromiseCache` preset wired to a mobx storage provider (also exported standalone as `mobxStorageProvider`, for composing custom presets)
 
 * [`TransitionObserver`](./src/observing/transition.ts) – neat wrapper of mobx's `reaction`
 
