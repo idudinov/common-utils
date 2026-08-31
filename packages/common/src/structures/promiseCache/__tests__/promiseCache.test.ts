@@ -311,4 +311,24 @@ describe('PromiseCache', () => {
 
         checkGenerator(1);
     });
+
+    describe('null-key guard', () => {
+        test('get() throws on null/undefined key', async () => {
+            const fetcher = vi.fn(async (id: string) => id);
+            const cache = new PromiseCache<string>(fetcher);
+
+            expect(() => cache.get(undefined as unknown as string)).toThrow();
+            expect(() => cache.get(null as unknown as string)).toThrow();
+            expect(fetcher).not.toHaveBeenCalled();
+            expect(cache.hasKey('undefined')).toBe(false);
+        });
+
+        test('refresh()/set()/getLazy() throw on null/undefined key', () => {
+            const cache = new PromiseCache<string>(async id => id);
+
+            expect(() => cache.refresh(undefined as unknown as string)).toThrow();
+            expect(() => cache.set(null as unknown as string, 'x')).toThrow();
+            expect(() => cache.getLazy(undefined as unknown as string)).toThrow();
+        });
+    });
 });

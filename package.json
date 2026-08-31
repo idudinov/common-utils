@@ -6,6 +6,7 @@
         "packages/*"
     ],
     "scripts": {
+        "dev": "tsc -b tsconfig.dev.json --watch",
         "build": "time npm run build:clean --workspaces --if-present",
         "check": "time npm run check --workspaces --if-present",
         "lint": "time npm run lint --workspaces --if-present",

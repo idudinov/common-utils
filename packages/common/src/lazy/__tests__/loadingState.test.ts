@@ -18,8 +18,8 @@ describe('viewLoadingState', () => {
         const factory = vi.fn(() => setTimeoutAsync(10).then(() => ++counter));
         const source = new LazyPromise(factory);
 
-        const loudView = source.view({ loading: false });
-        const quietView = source.view({ loading: true });
+        const loudView = viewLoadingState(source, { loading: false });
+        const quietView = viewLoadingState(source, { loading: true });
 
         expect(source.isLoading).toBeNull();
         expect(loudView.isLoading).toBeNull();
@@ -44,7 +44,7 @@ describe('viewLoadingState', () => {
         const source = new LazyPromise(() => setTimeoutAsync(10).then(() => ++counter))
             .withLoadingState({ refreshing: true }); // instance-level override
 
-        const view = source.view({}); // view names nothing
+        const view = viewLoadingState(source, {}); // view names nothing
 
         const p1 = source.promise;
         await vi.advanceTimersByTimeAsync(10);
@@ -60,7 +60,7 @@ describe('viewLoadingState', () => {
 
     test('pendingState forwards the source', async () => {
         const source = new LazyPromise(() => setTimeoutAsync(10).then(() => 1));
-        const view = source.view({ loading: false });
+        const view = viewLoadingState(source, { loading: false });
 
         expect(view.pendingState).toBeNull();
 
@@ -81,7 +81,7 @@ describe('viewLoadingState', () => {
             }
             return 'value';
         }));
-        const view = source.view({ refreshing: true });
+        const view = viewLoadingState(source, { refreshing: true });
 
         const p1 = source.promise;
         await vi.advanceTimersByTimeAsync(10);
@@ -105,7 +105,7 @@ describe('viewLoadingState', () => {
         let counter = 0;
         const factory = vi.fn(() => setTimeoutAsync(10).then(() => ++counter));
         const source = new LazyPromise(factory);
-        const view = source.view({ refreshing: true });
+        const view = viewLoadingState(source, { refreshing: true });
 
         const p1 = source.promise;
         await vi.advanceTimersByTimeAsync(10);
@@ -127,7 +127,7 @@ describe('viewLoadingState', () => {
 
     test('viewLoadingState composes over an already-forked view (fork-then-fork)', async () => {
         const source = new LazyPromise(() => setTimeoutAsync(10).then(() => 1));
-        const innerView = source.view({ loading: false });
+        const innerView = viewLoadingState(source, { loading: false });
         const outerView = viewLoadingState(innerView, { loading: true });
 
         const p = source.promise;

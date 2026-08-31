@@ -1,25 +1,23 @@
-import { tryDispose, type IDisposable } from '../functions/disposer.js';
-import type { IResettableModel } from '../models/types.js';
+import { assert } from '../functions/assert.js';
+import { combineDisposers, tryDispose, type IDisposable } from '../functions/disposer.js';
+import type { IResettableModel, IValueModel, ValueStorageProvider } from '../models/types.js';
+import { applyExtensionShape } from '../structures/extension.js';
 import type { IExpireTracker } from '../structures/expire.js';
 import type { ILazyPromiseExtension } from './extensions/types.js';
-import { deriveIsLoading, passivePendingKind, refreshPendingKind, viewLoadingState } from './loadingState.js';
+import { deriveIsLoading, passivePendingKind, refreshPendingKind } from './loadingState.js';
 import type {
     IControllableLazyPromise,
-    ILazyPromise,
     IResolvedLazyPromise,
     LazyFactory,
+    LazyPromiseOptions,
     LoadingStateStrategy,
     PendingLoadState,
 } from './types.js';
 
-/**
- * Granular state, recording facts (pending trigger × last settled outcome):
- * - `null` — idle, never settled
- * - `'resolved'` — settled with a value (factory or `setInstance`)
- * - `'failed'` — settled, first load failed, no value
- * - {@link PendingLoadState} — a load is in flight
- */
-type LazyPromiseState = null | 'resolved' | 'failed' | PendingLoadState;
+/** Default storage provider: plain, non-observable boxes. */
+const defaultStorageProvider: ValueStorageProvider = {
+    createValue: <V>(initial: V) => ({ value: initial }),
+};
 
 /**
  * Asynchronous lazy-loading container that initializes via a promise-based factory.
@@ -31,11 +29,17 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     private _factory: LazyFactory<T>;
     private readonly _initial: TInitial;
 
-    private _instance: T | TInitial;
+    private readonly _instance: IValueModel<T | TInitial>;
 
-    private _state: LazyPromiseState = null;
+    /**
+     * `_pending` records the in-flight load kind, `_settled` records how the last finished load ended.
+     * `'refreshing'`/`'revalidating'` in `_pending` require `_settled.value === 'resolved'`.
+     * Both fields are written only by `beginPending`, `settle`, and `reset`.
+     */
+    private readonly _pending: IValueModel<PendingLoadState | null>;
+    private readonly _settled: IValueModel<'resolved' | 'failed' | null>;
 
-    private _loadingStrategy: LoadingStateStrategy | undefined;
+    private readonly _loadingStrategy: IValueModel<LoadingStateStrategy | undefined>;
 
     private _isAsyncStateChange = false;
 
@@ -44,30 +48,41 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     // Track the active factory promise to determine "latest wins"
     private _activeFactoryPromise: Promise<T | TInitial> | null = null;
-    private _error: unknown = null;
+    private readonly _error: IValueModel<unknown>;
+
+    private readonly _prepareValue: (value: T) => T;
+
+    /** Runs a group of mutations as one change batch and returns `fn`'s result; identity if none was supplied. */
+    private readonly _transaction: <R>(fn: () => R) => R;
 
     private _ownDisposer?: () => void;
 
     constructor(
         factory: LazyFactory<T>,
         initial?: TInitial,
+        options?: LazyPromiseOptions<T>,
     ) {
         this._factory = factory;
         this._initial = initial as TInitial;
 
-        this._instance = initial as T | TInitial; // as ILazyValue<T, TInitial>;
+        const storage = options?.storage ?? defaultStorageProvider;
+        this._prepareValue = options?.prepareValue ?? (value => value);
+        this._transaction = storage.transaction?.bind(storage) ?? (fn => fn());
+
+        this._instance = storage.createValue<T | TInitial>(initial as T | TInitial);
+        this._pending = storage.createValue<PendingLoadState | null>(null);
+        this._settled = storage.createValue<'resolved' | 'failed' | null>(null);
+        this._error = storage.createValue<unknown>(null);
+        this._loadingStrategy = storage.createValue<LoadingStateStrategy | undefined>(undefined);
     }
 
     /** Current loading state: true = loading, false = loaded, null = not started. Pending states report per {@link withLoadingState}. */
     public get isLoading(): boolean | null {
-        const state = this._state;
-        if (state === null) {
-            return null;
+        const pending = this._pending.value;
+        if (pending !== null) {
+            return deriveIsLoading(pending, this._loadingStrategy.value);
         }
-        if (state === 'resolved' || state === 'failed') {
-            return false;
-        }
-        return deriveIsLoading(state, this._loadingStrategy);
+        return this._settled.value !== null ? false : null;
     }
 
     /**
@@ -75,15 +90,14 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * Stays `true` while a refresh/revalidation is in flight; use {@link isLoading} to hide stale values.
      */
     public get hasValue() {
-        return (this._state === 'resolved' || this._state === 'revalidating' || this._state === 'refreshing') && this._error == null;
+        return this._settled.value === 'resolved' && this._error.value == null;
     }
 
-    public get error(): unknown { return this._error; }
+    public get error(): unknown { return this._error.value; }
 
     /** The kind of load currently in flight, or null when idle/settled. */
     public get pendingState(): PendingLoadState | null {
-        const state = this._state;
-        return state !== null && state !== 'resolved' && state !== 'failed' ? state : null;
+        return this._pending.value;
     }
 
     public hasResolvedValue(): this is LazyPromise<T, TInitial> & IResolvedLazyPromise<T, TInitial> {
@@ -97,12 +111,12 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     get value(): T | TInitial {
         this.ensureInstanceLoading();
-        return this._instance;
+        return this._instance.value;
     }
 
     /** Returns current value without triggering loading. */
     public get currentValue(): T | TInitial {
-        return this._instance;
+        return this._instance.value;
     }
 
     /** Configures automatic cache expiration using an expire tracker. */
@@ -122,13 +136,8 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * Subsequent calls replace the previous strategy, not merge with it.
      */
     public withLoadingState(strategy: LoadingStateStrategy) {
-        this._loadingStrategy = strategy;
+        this._loadingStrategy.value = strategy;
         return this;
-    }
-
-    /** Returns a read-only fork reporting `isLoading` per `strategy`; shares lifecycle with this instance. */
-    public view(strategy: LoadingStateStrategy): ILazyPromise<T, TInitial> {
-        return viewLoadingState<T, TInitial>(this, strategy);
     }
 
     /**
@@ -145,12 +154,10 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         extension: Partial<ILazyPromiseExtension<any, TExtShape>>,
     ): object extends TExtShape ? this : this & TExtShape {
 
-        let extended = this as this & TExtShape;
-
-        // Apply shape extension if provided
-        if (extension.extendShape) {
-            extended = extension.extendShape(this) as this & TExtShape;
-        }
+        const extended = applyExtensionShape<this, TExtShape>(
+            this,
+            extension.extendShape as ((previous: this) => this & TExtShape) | undefined,
+        );
 
         // Override the factory if provided
         if (extension.overrideFactory) {
@@ -158,13 +165,8 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         }
 
         if (extension.dispose) {
-            const previousDisposer = this._ownDisposer;
             const nextDisposer = extension.dispose;
-
-            this._ownDisposer = () => {
-                nextDisposer(extended);
-                previousDisposer?.();
-            };
+            this._ownDisposer = combineDisposers(() => nextDisposer(extended), this._ownDisposer);
         }
 
         return extended;
@@ -178,20 +180,21 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * @returns The value that was set
      */
     public setInstance(res: T) {
-        this.updateState('resolved');
-        this.clearError(); // clear error on successful set
+        const prepared = this._prepareValue(res);
 
-        // refresh promise so it won't keep old callbacks
-        // + make sure it's resolved with the freshest value
-        // also do this before setting the instance... just in case :)
-        this._promise = Promise.resolve(res);
-        this._activeFactoryPromise = null;
+        this._transaction(() => {
+            this.settle('resolved');
+            this.clearError(); // clear error on successful set
+            this._instance.value = prepared;
 
-        this._instance = res;
+            // refresh promise so it won't keep old callbacks, resolved with the freshest value
+            this._promise = Promise.resolve(prepared);
+            this._activeFactoryPromise = null;
 
-        this._expireTracker?.restart();
+            this._expireTracker?.restart();
+        });
 
-        return res;
+        return prepared;
     }
 
     /**
@@ -208,24 +211,24 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         const nextState = this.refreshTargetState();
         this.startLoading(true);
 
-        this.applyState(nextState);
+        this.applyPending(nextState);
 
         return this._promise!;
     }
 
     /**
-     * Applies a state transition immediately, or deferred (per `withAsyncStateChange`) unless a newer
+     * Applies a pending-state transition immediately, or deferred (per `withAsyncStateChange`) unless a newer
      * factory promise has replaced the one active when this write was scheduled.
      */
-    private applyState(next: LazyPromiseState) {
+    private applyPending(next: PendingLoadState) {
         if (!this._isAsyncStateChange) {
-            this.updateState(next);
+            this.beginPending(next);
             return;
         }
         const active = this._activeFactoryPromise;
         Promise.resolve().then(() => {
             if (this._activeFactoryPromise === active) {
-                this.updateState(next);
+                this.beginPending(next);
             }
         });
     }
@@ -233,21 +236,26 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     /** A load already in flight keeps its classification; otherwise it's derived from the last settled state. */
     private refreshTargetState(): PendingLoadState {
         // a kept stale value counts even when the last refresh errored, so `hasValue` (error-sensitive) doesn't fit here
-        const carriesValue = this._state === 'resolved' || this._state === 'revalidating';
-        return refreshPendingKind(this.pendingState, carriesValue);
+        return refreshPendingKind(this._pending.value, this._settled.value === 'resolved');
     }
 
     public reset() {
-        this.updateState(null);
-        this.clearError();
-
-        const wasDisposed = tryDispose(this._instance);
-
-        this._instance = this._initial;
-
+        const oldInstance = this._instance.value;
         const p = this._promise;
-        this._promise = undefined;
-        this._activeFactoryPromise = null; // Clear active promise reference
+
+        // _promise/_activeFactoryPromise are cleared in the same transaction as the box writes, so a
+        // reactive read triggered mid-transaction (e.g. a dependent's auto-refresh) never observes a
+        // half-reset instance still holding the abandoned active promise
+        this._transaction(() => {
+            this._pending.value = null;
+            this._settled.value = null;
+            this.clearError();
+            this._instance.value = this._initial;
+            this._promise = undefined;
+            this._activeFactoryPromise = null;
+        });
+
+        const wasDisposed = tryDispose(oldInstance);
 
         // check if loading is still in progress
         // need to dispose abandoned value
@@ -264,21 +272,23 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     private ensureInstanceLoading() {
+        if (this._activeFactoryPromise) {
+            // a load is already in flight; a passive read must not schedule a second deferred state write
+            return;
+        }
+
         let nextState: PendingLoadState | undefined;
 
-        if (this._state === null) {
+        const settled = this._settled.value;
+        if (settled === null) {
             nextState = 'loading';
-        } else if (this._expireTracker?.isExpired && (this._state === 'resolved' || this._state === 'failed')) {
-            const hasValue = this._state === 'resolved' && this._instance !== undefined;
-            // a failed load with no instance still retries; a resolved load only revalidates once it has something to keep showing
-            if (hasValue || this._state === 'failed') {
-                nextState = passivePendingKind(hasValue);
-            }
+        } else if (this._expireTracker?.isExpired) {
+            nextState = passivePendingKind(settled === 'resolved');
         }
 
         if (nextState !== undefined) {
             this.startLoading(false);
-            this.applyState(nextState);
+            this.applyPending(nextState);
         }
     }
 
@@ -300,16 +310,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             .then(res => {
                 if (!this._activeFactoryPromise) {
                     // this promise was abandoned: was superseded or reset called
-                    return this._instance ?? this._initial;
+                    return this._instance.value ?? this._initial;
                 }
 
                 if (this._activeFactoryPromise === factoryPromise) {
-                    // case: during the promise `setInstance` was called manually
-                    if (!refreshing && this._state === 'resolved') {
-                        return this._instance;
-                    }
-                    this.setInstance(res);
-                    return res;
+                    return this.setInstance(res);
                 }
 
                 // Stale promise - return the latest active promise instead
@@ -319,7 +324,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             .catch(err => {
                 if (!this._activeFactoryPromise) {
                     // Abandoned (reset/dispose was called) — don't corrupt state
-                    return this._instance ?? this._initial;
+                    return this._instance.value ?? this._initial;
                 }
                 if (this._activeFactoryPromise === factoryPromise) {
                     return this.onRejected(err);
@@ -341,26 +346,38 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     protected onRejected(e: unknown): T | TInitial {
-        const keptStaleValue = this._state === 'revalidating' || this._state === 'refreshing';
-        this.updateState(keptStaleValue ? 'resolved' : 'failed');
-        // Keep the current instance on error (don't reset to initial)
-        // This allows retaining the last successful value
-        const currentInstance = this._instance !== undefined ? this._instance : this._initial;
-        this._promise = Promise.resolve(currentInstance);
-        this._activeFactoryPromise = null;
-        this.setError(e);
-        return currentInstance;
+        return this._transaction(() => {
+            this.settle('failed');
+            // Keep the current instance on error (don't reset to initial)
+            // This allows retaining the last successful value
+            const currentInstance = this._instance.value !== undefined ? this._instance.value : this._initial;
+            this._promise = Promise.resolve(currentInstance);
+            this._activeFactoryPromise = null;
+            this.setError(e);
+            return currentInstance;
+        });
     }
 
-    protected updateState(state: LazyPromiseState) {
-        this._state = state;
+    /** Begins a pending load; `'refreshing'`/`'revalidating'` require a prior resolved settle. */
+    protected beginPending(kind: PendingLoadState) {
+        assert(
+            (kind !== 'refreshing' && kind !== 'revalidating') || this._settled.value === 'resolved',
+            `LazyPromise: cannot begin '${kind}' without a resolved value`,
+        );
+        this._pending.value = kind;
+    }
+
+    /** Ends the pending load. A failed load keeps a previously resolved settle (a kept stale value survives it). */
+    protected settle(outcome: 'resolved' | 'failed') {
+        this._pending.value = null;
+        this._settled.value = outcome === 'failed' && this._settled.value === 'resolved' ? 'resolved' : outcome;
     }
 
     protected setError(err: unknown) {
-        this._error = err;
+        this._error.value = err;
     }
 
     protected clearError() {
-        this._error = null;
+        this._error.value = null;
     }
 }

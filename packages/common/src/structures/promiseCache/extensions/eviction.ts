@@ -9,10 +9,10 @@ import type { IPromiseCacheExtension } from './types.js';
 export function createEvictionExtension<T, TKey extends string = string>(
     config: { maxItems: number },
 ): IPromiseCacheExtension<T, TKey> {
-    const order = new Map<TKey, true>();
+    const order = new Set<TKey>();
 
     const findInvalidCandidate = (target: IControllablePromiseCache<T, TKey, T | undefined>, justStoredKey: TKey): TKey | undefined => {
-        for (const key of target.keys()) {
+        for (const key of target.keys(true)) {
             if (key === justStoredKey) continue;
             if (target.getPendingState(key) != null) continue;
             if (!target.getIsValid(key)) return key;
@@ -30,16 +30,27 @@ export function createEvictionExtension<T, TKey extends string = string>(
     };
 
     return {
+        extendShape: previous => {
+            for (const key of previous.keys(true)) {
+                order.add(key);
+            }
+            return previous;
+        },
         onStored: (key, _value, target) => {
             order.delete(key);
-            order.set(key, true);
+            order.add(key);
 
-            while (target.keys().length > config.maxItems) {
+            let count = 0;
+            for (const _key of target.keys(true)) count++;
+
+            while (count > config.maxItems) {
                 const candidate = findInvalidCandidate(target, key) ?? findOldestCandidate(target, key);
                 if (candidate === undefined) break;
 
                 order.delete(candidate);
+                const existed = target.hasKey(candidate);
                 target.invalidate(candidate, 'silent');
+                if (existed) count--;
             }
         },
         onInvalidated: key => {

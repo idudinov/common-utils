@@ -116,10 +116,10 @@ describe('PromiseCache extensions', () => {
 
     test('a throwing hook does not break the cache operation or other hooks', async () => {
         const good = vi.fn();
-        const warn = vi.fn();
+        const error = vi.fn();
 
         const cache = new PromiseCache<string>(async key => key)
-            .setLogger({ log: vi.fn(), warn, error: vi.fn() })
+            .setLogger({ log: vi.fn(), warn: vi.fn(), error })
             .extend({ onStored: () => { throw new Error('boom'); } })
             .extend({ onStored: good });
 
@@ -127,6 +127,6 @@ describe('PromiseCache extensions', () => {
 
         expect(good).toHaveBeenCalledWith('a', 'a', cache);
         expect(cache.getCurrent('a', false)).toBe('a');
-        expect(warn).toHaveBeenCalled();
+        expect(error).toHaveBeenCalled();
     });
 });

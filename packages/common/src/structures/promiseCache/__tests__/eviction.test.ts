@@ -286,15 +286,14 @@ describe('PromiseCache eviction extension', () => {
         expect(cache.hasKey('d')).toBe(true);
     });
 
-    // --- Behavior diffs vs the v2 (built-in maxItems) implementation ---
+    // --- set() enforcement ---
 
-    test('diff: set() alone is now enforced, without needing an intervening fetch', () => {
+    test('set() triggers eviction enforcement', () => {
         const cache = new PromiseCache<string>(
             async id => id,
         ).extend(createEvictionExtension({ maxItems: 2 }));
 
-        // Three set() calls in a row, no fetch in between — each is its own onStored,
-        // so the third immediately evicts 'a' rather than waiting for the next store.
+        // Each set() is its own onStored, so the third call evicts 'a' immediately.
         cache.set('a', 'val-a');
         cache.set('b', 'val-b');
         cache.set('c', 'val-c');
@@ -339,6 +338,52 @@ describe('PromiseCache eviction extension', () => {
 
         resolvers.pop()!();
         await refreshPromise;
+    });
+
+    test('evicts entries cached before extend() attaches', async () => {
+        const cache = new PromiseCache<string>(
+            async id => delayedValue(5, id),
+        );
+
+        let p = cache.get('a');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        const evictingCache = cache.extend(createEvictionExtension({ maxItems: 1 }));
+
+        p = evictingCache.get('b');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        expect(evictingCache.keys()).toEqual(['b']);
+    });
+
+    test('ghost keys (removed behind the extension\'s back) do not block or stall eviction', async () => {
+        const cache = new PromiseCache<string>(
+            async id => delayedValue(5, id),
+        ).extend(createEvictionExtension({ maxItems: 2 }));
+
+        let p = cache.get('a');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        p = cache.get('b');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        // Removed silently, so the extension's `order` still holds 'a' as a ghost entry.
+        cache.invalidate('a', 'silent');
+
+        p = cache.get('c');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        p = cache.get('d');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        expect(cache.cachedCount).toBe(2);
+        expect(cache.keys().sort()).toEqual(['c', 'd']);
     });
 
     test('onInvalidated of another extension does not fire on eviction, but does on a direct invalidate()', async () => {

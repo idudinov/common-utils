@@ -14,6 +14,7 @@ The motivation to have this – just to control and organize some shared code th
     * [Timeouts](./src/async/timeout.ts): a promisified `setTimeout` - `setTimeoutAsync`; `timeoutPromise` - a promise that rejects after a timeout;
     * [ManualPromise](./src/async/manualPromise.ts): a promise that can be resolved/rejected manually;
     * [Array extensions](./src/async/arrays.ts): `someAsync`, `everyAsync`, `forEachAsync`, `mapAsync` (previously were Array.prototype extensions);
+    * [Retry](./src/async/retry.ts): `withRetry` - runs an async function, retrying on failure with configurable backoff;
 
 * [Date extensions & helpers](./src/dates/index.ts): operations with granularity, date formatting etc;
     * [Period](./src/dates/period.ts): a structure to work with date periods e.g. 1 day, 5 years etc;
@@ -24,7 +25,7 @@ The motivation to have this – just to control and organize some shared code th
 
 * [Functions](./src/functions): [`assert`](./src/functions/assert.ts), [`IDisposable`/`Disposable`/`Disposer`](./src/functions/disposer.ts), [`DebounceAction`/`DebounceProcessor`](./src/functions/debounce.ts).
 
-* [Lazy](./src/lazy): [`Lazy`](./src/lazy/singleton.ts) (sync), [`LazyPromise`](./src/lazy/promise.ts).
+* [Lazy](./src/lazy): [`Lazy`](./src/lazy/singleton.ts) (sync), [`LazyPromise`](./src/lazy/promise.ts), [`emptyLazyPromise`](./src/lazy/empty.ts) (a settled-empty `ILazyPromise` that never loads).
 
 * [Logger interface & console implementation](./src/logger/index.ts): create instance of logger, inject your own implementation or globally enable/disable logger instances by calling `setMode`.
 

@@ -1,6 +1,6 @@
 
 import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
-import type { IMapModel, IValueModel } from '../../models/types.js';
+import type { IMapModel, ValueStorageProvider } from '../../models/types.js';
 
 export type { LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
@@ -8,26 +8,12 @@ export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
 /**
  * Supplies the observable primitives backing a {@link PromiseCache}'s internal storage.
  */
-export interface PromiseCacheStorageProvider {
+export interface PromiseCacheStorageProvider extends ValueStorageProvider {
     /**
      * Creates a keyed container for per-key cache state. Called during cache construction.
      * Must be identity-preserving: values read back exactly as stored, never wrapped or converted.
      */
     createMap<K, V>(): IMapModel<K, V>;
-
-    /**
-     * Creates a single-value box initialized to `initial`. Called during cache construction.
-     * Must be identity-preserving for non-function values; function-typed values need not be supported.
-     */
-    createValue<V>(initial: V): IValueModel<V>;
-
-    /**
-     * Runs a group of mutations as one change batch and returns `fn`'s result. Called synchronously
-     * with a function that itself must run synchronously — never wrap an `await` in it.
-     *
-     * When omitted, groups are not batched: `fn` is invoked immediately, uncoordinated with other mutations.
-     */
-    transaction?<R>(fn: () => R): R;
 }
 
 /** Constructor options for {@link PromiseCache}. */

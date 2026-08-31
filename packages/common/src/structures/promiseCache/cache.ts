@@ -1,9 +1,14 @@
-import type { IDisposable } from '../../functions/disposer.js';
+import { combineDisposers, type IDisposable } from '../../functions/disposer.js';
 import { deriveIsLoading, passivePendingKind, refreshPendingKind, viewLoadingState } from '../../lazy/loadingState.js';
 import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import { Loggable } from '../../logger/loggable.js';
+import type { ILogger } from '../../logger/types.js';
 import { Model } from '../../models/Model.js';
 import type { IMapModel, IValueModel } from '../../models/types.js';
+import { Event, type IEvent } from '../../observing/event.js';
+import type { Getter } from '../../types/getter.js';
+import type { Nullable } from '../../types/misc.js';
+import { applyExtensionShape } from '../extension.js';
 import type { IPromiseCacheExtension } from './extensions/index.js';
 import { isInvalidated } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
@@ -26,6 +31,9 @@ const defaultStorageProvider: PromiseCacheStorageProvider = {
 */
 export class PromiseCache<T, TKey extends string = string, TInitial extends T | undefined = undefined> extends Loggable implements IControllablePromiseCache<T, TKey, TInitial>, IDisposable {
 
+    // Each concern lives in its own map so that reactive storage subscribes per concern:
+    // writing to one (e.g. a resolved value) does not invalidate reads of another (e.g. loading state).
+
     /** Stores resolved items in map by key. */
     protected readonly _itemsCache: IMapModel<string, T>;
 
@@ -44,10 +52,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores items resolve timestamps (for expiration) in map by key. */
     protected readonly _timestamps = new Map<string, number>();
 
-    /**
-     * Tracks the latest in-flight factory promise per key for "latest wins" refresh semantics.
-     * Separate from `_fetchCache` (which stores the public-facing promise returned to callers).
-     */
+    /** Tracks the latest in-flight factory promise per key, used to decide which settle wins ("latest wins" refresh semantics). */
     protected readonly _activeFetchPromises = new Map<string, Promise<T | TInitial>>();
 
     protected _version = 0;
@@ -61,9 +66,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     private _fetcher: PromiseCacheFetcher<T, TKey>;
 
-    private readonly _onStoredHooks: ((key: TKey, value: T, target: IControllablePromiseCache<T, TKey, T | undefined>) => void)[] = [];
-    private readonly _onInvalidatedHooks: ((key: TKey, target: IControllablePromiseCache<T, TKey, T | undefined>) => void)[] = [];
-    private readonly _onClearedHooks: ((target: IControllablePromiseCache<T, TKey, T | undefined>) => void)[] = [];
+    private readonly _onStored = new Event<{ key: TKey; value: T }>();
+    private readonly _onInvalidated = new Event<{ key: TKey }>();
+    private readonly _onCleared = new Event<void>();
     private _ownDisposer: (() => void) | undefined;
 
     private _invalidationConfig: InvalidationConfig<T> | null = null;
@@ -150,6 +155,17 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return self;
     }
 
+    // --- Events ---
+
+    /** Fires after every successful store — fetch result and manual `set()` — with the stored (prepared) value. */
+    public get onStored(): IEvent<{ key: TKey; value: T }> { return this._onStored.expose(); }
+
+    /** Fires for `'notify'` invalidations only; never for `'silent'` ones, `sanitize()`, or `clear()`. */
+    public get onInvalidated(): IEvent<{ key: TKey }> { return this._onInvalidated.expose(); }
+
+    /** Fires after `clear()` resets the cache. */
+    public get onCleared(): IEvent<void> { return this._onCleared.expose(); }
+
     // --- Extensions ---
 
     /**
@@ -166,40 +182,32 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         extension: Partial<IPromiseCacheExtension<T, TKey, TExtShape>>,
     ): object extends TExtShape ? this : this & TExtShape {
 
-        let extended = this as this & TExtShape;
-
-        if (extension.extendShape) {
-            const result = extension.extendShape(this);
-            if (result !== (this as unknown)) {
-                throw new Error('extendShape must augment the given instance in place and return it');
-            }
-            extended = result as this & TExtShape;
-        }
+        const extended = applyExtensionShape<this, TExtShape>(
+            this,
+            extension.extendShape as ((previous: this) => this & TExtShape) | undefined,
+        );
 
         if (extension.overrideFetcher) {
             this._fetcher = extension.overrideFetcher(this._fetcher, extended);
         }
 
         if (extension.onStored) {
-            this._onStoredHooks.push(extension.onStored);
+            const hook = extension.onStored;
+            this._onStored.on(p => hook(p.key, p.value, extended));
         }
 
         if (extension.onInvalidated) {
-            this._onInvalidatedHooks.push(extension.onInvalidated);
+            const hook = extension.onInvalidated;
+            this._onInvalidated.on(p => hook(p.key, extended));
         }
 
         if (extension.onCleared) {
-            this._onClearedHooks.push(extension.onCleared);
+            const hook = extension.onCleared;
+            this._onCleared.on(() => hook(extended));
         }
 
         if (extension.dispose) {
-            const previousDisposer = this._ownDisposer;
-            const nextDisposer = extension.dispose;
-
-            this._ownDisposer = () => {
-                nextDisposer();
-                previousDisposer?.();
-            };
+            this._ownDisposer = combineDisposers(extension.dispose, this._ownDisposer);
         }
 
         return extended;
@@ -245,9 +253,19 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return `[PromiseCache:${name || '?'}]`;
     }
 
+    /** Forwards the resolved logger to the {@link onStored}, {@link onInvalidated}, and {@link onCleared} events, so their handler failures log through it too. */
+    override setLogger(logger: Getter<Nullable<ILogger>>): this {
+        super.setLogger(logger);
+        this._onStored.setLogger(this.logger);
+        this._onInvalidated.setLogger(this.logger);
+        this._onCleared.setLogger(this.logger);
+        return this;
+    }
+
     // --- Public API: reading ---
 
     getLazy(key: TKey, strategy?: LoadingStateStrategy): ILazyPromise<T, TInitial> {
+        this._assertKey(key);
         const handle = new PromiseCacheLazyHandle<T, TInitial>(this, key);
         return strategy ? viewLoadingState(handle, strategy) : handle;
     }
@@ -286,10 +304,13 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     }
 
     get(key: TKey): Promise<T | TInitial> {
+        this._assertKey(key);
+
         const hasCached = this._itemsCache.has(key);
+        const isInvalidated = this.getIsInvalidated(key);
 
         // return cached item if it's not invalidated
-        if (hasCached && !this.getIsInvalidated(key)) {
+        if (hasCached && !isInvalidated) {
             const item = this._itemsCache.get(key)!;
             this.logger.log(key, 'get: item resolved to', item);
             return Promise.resolve(item);
@@ -304,7 +325,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
         // If a fetch is in progress or already completed (with error) and not invalidated,
         // don't start a new fetch — error is "sticky". Use refresh() or invalidate() to retry.
-        if (this._itemsStatus.has(key) && !this.getIsInvalidated(key)) {
+        if (this._itemsStatus.has(key) && !isInvalidated) {
             const status = this._itemsStatus.get(key);
             this.logger.log(key, 'get: fetch already', status ? 'in progress' : 'completed (error)', '— returning initial value');
             return Promise.resolve(this._getInitialValue(key));
@@ -319,6 +340,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     }
 
     refresh(key: TKey): Promise<T | TInitial> {
+        this._assertKey(key);
+
         const current = this._itemsStatus.get(key) || null;
 
         return this._transaction(() => {
@@ -350,18 +373,17 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     invalidate(key: TKey, mode: InvalidationMode = 'notify') {
         this._transaction(() => {
-            this._deleteKey(key);
-            this._errorsMap.delete(key);
-            this._timestamps.delete(key);
-            this._activeFetchPromises.delete(key);
+            this._purgeKey(key);
         });
 
         if (mode === 'notify') {
-            this._fireHooks(this._onInvalidatedHooks, key, this);
+            this._onInvalidated.trigger({ key });
         }
     }
 
     set(key: TKey, value: T) {
+        this._assertKey(key);
+
         const prepared = this._prepareValue(value);
 
         this._transaction(() => {
@@ -373,7 +395,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._activeFetchPromises.delete(key);
         });
 
-        this._fireHooks(this._onStoredHooks, key, prepared, this);
+        this._onStored.trigger({ key, value: prepared });
     }
 
     /**
@@ -392,10 +414,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
         return this._transaction(() => {
             for (const key of keysToRemove) {
-                this._deleteKey(key);
-                this._errorsMap.delete(key);
-                this._timestamps.delete(key);
-                this._activeFetchPromises.delete(key);
+                this._purgeKey(key);
             }
             return keysToRemove.length;
         });
@@ -414,7 +433,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._activeFetchPromises.clear();
         });
 
-        this._fireHooks(this._onClearedHooks, this);
+        this._onCleared.trigger();
     }
 
     // --- Protected hooks ---
@@ -448,6 +467,14 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this._fetchCache.delete(key);
         this._itemsStatus.delete(key);
         this._itemsCache.delete(key);
+    }
+
+    /** Removes every per-key entry, across all maps. */
+    protected _purgeKey(key: string) {
+        this._deleteKey(key);
+        this._errorsMap.delete(key);
+        this._timestamps.delete(key);
+        this._activeFetchPromises.delete(key);
     }
 
     /** Updates the loading status for the specified key. Override to add a hook. */
@@ -485,30 +512,17 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this._loadingCount.value = this._loadingCount.value - 1;
     }
 
-    /** Hooks into cancelled fetch cleanup (set()/invalidate() called mid-flight). Decrements loading count and cleans fetch cache. Restores _itemsStatus for set() path; clears all per-key bookkeeping for invalidate() path. */
-    protected onFetchCancelled(key: string) {
+    /** Hooks into cancelled fetch cleanup (set()/invalidate() called mid-flight). Only decrements loading count — per-key cleanup is the responsibility of the mutation that cancelled the fetch. */
+    protected onFetchCancelled(_key: string) {
         this._loadingCount.value = this._loadingCount.value - 1;
-        this._fetchCache.delete(key);
-        if (this._itemsCache.has(key)) {
-            this._itemsStatus.set(key, false);
-        } else {
-            // invalidate() path — ensure no stale bookkeeping remains
-            this._itemsStatus.delete(key);
-            this._timestamps.delete(key);
-            this._errorsMap.delete(key);
-        }
     }
 
     // --- Private ---
 
-    /** Runs `hooks` in order, isolating each from the others' and its own failures. */
-    private _fireHooks<TArgs extends unknown[]>(hooks: ((...args: TArgs) => void)[], ...args: TArgs): void {
-        for (const hook of hooks) {
-            try {
-                hook(...args);
-            } catch (err) {
-                this.logger.warn('extension hook failed', err);
-            }
+    /** Throws if `key` is `null` or `undefined` (`==` catches both) — non-null non-string keys are the type system's job. */
+    private _assertKey(key: TKey) {
+        if (key == null) {
+            throw new Error('PromiseCache: key must not be null or undefined');
         }
     }
 
@@ -552,7 +566,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
         if (v !== this._version) {
             this._transaction(() => {
-                this._activeFetchPromises.delete(key);
+                // Only delete if this fetch is still the active one — a fresh fetch started
+                // after clear() may already own this key's entry.
+                if (this._activeFetchPromises.get(key) === factoryPromise) {
+                    this._activeFetchPromises.delete(key);
+                }
             });
             this.logger.log(key, 'skipping item\'s resolve due to version change ("clear()" has been called)');
             // resolve with actual result but don't store it
@@ -572,8 +590,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                     : this._getCachedOrInitial(key);
             }
 
-            // Active promise removed by set()/invalidate() — clean up
-            // in-flight bookkeeping without restoring _itemsStatus.
+            // Active promise removed by set()/invalidate() — the mutation already
+            // cleaned up per-key bookkeeping; only the loading count needs decrementing.
             this._transaction(() => this.onFetchCancelled(key));
             return this._getCachedOrInitial(key);
         }
@@ -588,7 +606,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                 this.onFetchComplete(key);
             });
 
-            this._fireHooks(this._onStoredHooks, key, res, this);
+            this._onStored.trigger({ key, value: res });
             return res;
         }
 

@@ -76,8 +76,9 @@ export class Disposer extends Loggable {
     }
 }
 
-export function combineDisposers(...items: DisposeFunction[]): DisposeFunction {
-    return () => items.forEach(i => i());
+/** Creates a {@link DisposeFunction} that combines multiple disposers into one, executing them in the order they are provided. */
+export function combineDisposers(...items: Nullable<DisposeFunction>[]): DisposeFunction {
+    return () => items.forEach(i => i?.());
 }
 
 export class Disposable extends Loggable implements IDisposable {

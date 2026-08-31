@@ -129,3 +129,33 @@ describe('ObservingCache works with', () => {
         }
     });
 });
+
+describe('useUpdater', () => {
+    it('a subscription update re-setting the current observable value does not throw', async () => {
+        let cb!: (val: TestItem) => void;
+
+        const fetcher = vi.fn((_key: string, callback: (val: TestItem) => void) => {
+            cb = callback;
+            return () => { /* unsub */ };
+        });
+
+        const Cache = new SubscribersPromiseCache<TestItem>(fetcher)
+            .useUpdater((current, incoming) => Object.assign(current, incoming));
+
+        try {
+            const lazy = Cache.get('123');
+            const p = lazy.promise;
+
+            // First invocation resolves the initial fetch.
+            cb({ hello: 'first' });
+            await expect(p).resolves.toStrictEqual({ hello: 'first' });
+
+            // Second invocation is a subscription update: it re-sets the already-observable
+            // current value returned by the updater.
+            expect(() => cb({ hello: 'second' })).not.toThrow();
+            expect(Cache.getCurent('123')).toStrictEqual({ hello: 'second' });
+        } finally {
+            Cache.dispose();
+        }
+    });
+});

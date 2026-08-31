@@ -10,6 +10,11 @@ import type { IControllablePromiseCache, InvalidationMode, PromiseCacheFetcher }
  * `Map<string, K>` registry populated on every call that receives an id — so a key can only be
  * resolved back to its id after that id has been passed to at least one public method first.
  *
+ * Registry entries live until `clear()`: memory grows with the number of distinct ids ever
+ * fetched or stored, and a handle obtained before a `clear()` needs its id passed to a public
+ * method again before it can resolve. Providing `fromKey` avoids the registry entirely —
+ * recommended for large or unbounded id spaces.
+ *
  * Only a subset of `PromiseCache`'s API is mirrored here (translated to take `id: K`); anything
  * else is reached via the {@link cache} getter, which works with the inner string keys.
  */
@@ -64,38 +69,36 @@ export class KeyedPromiseCache<
     }
 
     getIsLoading(id: TKey): boolean | null {
-        return this._cache.getIsLoading(this._registerKey(id));
+        return this._cache.getIsLoading(this._toKey(id));
     }
 
     getPendingState(id: TKey): PendingLoadState | null {
-        return this._cache.getPendingState(this._registerKey(id));
+        return this._cache.getPendingState(this._toKey(id));
     }
 
     getHasValue(id: TKey): boolean {
-        return this._cache.getHasValue(this._registerKey(id));
+        return this._cache.getHasValue(this._toKey(id));
     }
 
     getLastError(id: TKey): unknown {
-        return this._cache.getLastError(this._registerKey(id));
+        return this._cache.getLastError(this._toKey(id));
     }
 
     getIsValid(id: TKey): boolean {
-        return this._cache.getIsValid(this._registerKey(id));
+        return this._cache.getIsValid(this._toKey(id));
     }
 
     hasKey(id: TKey): boolean {
-        return this._cache.hasKey(this._registerKey(id));
+        return this._cache.hasKey(this._toKey(id));
     }
 
     set(id: TKey, value: T) {
         this._cache.set(this._registerKey(id), value);
     }
 
-    /** Invalidates the item and removes its registry entry, in either mode. */
+    /** Invalidates the item without touching the registry — a handle obtained before this call stays resolvable and the item can re-fetch. */
     invalidate(id: TKey, mode?: InvalidationMode) {
-        const key = this._registerKey(id);
-        this._cache.invalidate(key, mode);
-        this._registry.delete(key);
+        this._cache.invalidate(this._toKey(id), mode);
     }
 
     /** Clears the cache and the id registry. */

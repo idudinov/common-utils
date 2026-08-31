@@ -117,6 +117,29 @@ describe('PromiseCache errors', () => {
             expect(cache.getLazy('a').hasValue).toBe(true);
         });
 
+        test('a late-settling superseded fetch does not erase a newer fetch\'s error', async () => {
+            const resolvers: ((value: number) => void)[] = [];
+            const rejectors: ((err: unknown) => void)[] = [];
+            const cache = new PromiseCache<number>(() => new Promise<number>((resolve, reject) => {
+                resolvers.push(resolve);
+                rejectors.push(reject);
+            }));
+
+            const p1 = cache.get('a'); // F1 in flight
+            const p2 = cache.refresh('a'); // F2 supersedes F1
+
+            const error = new Error('F2 failed');
+            rejectors[1](error);
+            await p2;
+
+            resolvers[0](111); // F1 settles late
+            await p1;
+
+            expect(cache.getLastError('a')).toBe(error);
+            expect(cache.hasKey('a')).toBe(true);
+            expect(cache.loadingCount).toBe(0);
+        });
+
         test('clear resets all state including errors', async () => {
             const cache = new PromiseCache<string>(
                 async () => { throw new Error('fail'); },

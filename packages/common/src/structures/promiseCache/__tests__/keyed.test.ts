@@ -65,6 +65,18 @@ describe('KeyedPromiseCache', () => {
             expect(fetcher).toHaveBeenCalledTimes(2);
         });
 
+        test('a handle obtained before invalidate() stays usable and re-fetches', async () => {
+            let counter = 0;
+            const cache = new KeyedPromiseCache(async (id: number) => `value-${id}-${++counter}`, id => id.toString());
+
+            const lazy = cache.getLazy(9);
+            await expect(lazy.promise).resolves.toBe('value-9-1');
+
+            cache.invalidate(9);
+
+            await expect(lazy.promise).resolves.toBe('value-9-2');
+        });
+
         test('accepts a per-handle loading state strategy', async () => {
             const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
 
@@ -126,8 +138,8 @@ describe('KeyedPromiseCache', () => {
         });
     });
 
-    describe('registry cleanup', () => {
-        test('invalidate() removes the registry entry', async () => {
+    describe('registry lifetime', () => {
+        test('invalidate() keeps the registry entry, so the key still resolves back to its id', async () => {
             const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
 
             await cache.get(3);
@@ -136,13 +148,13 @@ describe('KeyedPromiseCache', () => {
             cache.invalidate(3);
             expect(cache.cache.hasKey('3')).toBe(false); // inner cache cleared, bypassing the wrapper
 
-            // The registry entry for '3' is gone — re-populating the inner cache directly
-            // for the same string key now has no id to resolve back to.
+            // The registry entry for '3' survives — re-populating the inner cache directly
+            // for the same string key resolves back to the id.
             cache.cache.set('3', 999);
-            expect(() => cache.keys()).toThrow(/no id registered/);
+            expect(cache.keys()).toEqual([3]);
         });
 
-        test('invalidate(id, \'silent\') forwards the mode to the inner cache and still removes the registry entry', async () => {
+        test('invalidate(id, \'silent\') forwards the mode to the inner cache and keeps the registry entry', async () => {
             const onInvalidated = vi.fn();
             const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
             cache.cache.extend({ onInvalidated });
@@ -154,7 +166,7 @@ describe('KeyedPromiseCache', () => {
             expect(cache.cache.hasKey('4')).toBe(false);
 
             cache.cache.set('4', 999);
-            expect(() => cache.keys()).toThrow(/no id registered/);
+            expect(cache.keys()).toEqual([4]);
         });
 
         test('clear() empties the registry', async () => {

@@ -1,0 +1,10 @@
+{
+    "files": [],
+    "references": [
+        { "path": "./packages/common/tsconfig.json" },
+        { "path": "./packages/common-mobx/tsconfig.json" },
+        { "path": "./packages/common-web/tsconfig.json" },
+        { "path": "./packages/common-firebase/tsconfig.json" },
+        { "path": "./packages/scripts/tsconfig.json" }
+    ]
+}

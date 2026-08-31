@@ -112,10 +112,16 @@ Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sa
 
 `invalidate(key, mode?)` has two modes:
 
-- `'notify'` (default) — announces the removal to registered `onInvalidated` extension hooks.
-- `'silent'` — internal housekeeping (e.g. eviction) that observers should not react to; `sanitize()` and `clear()` never fire `onInvalidated` either way.
+- `'notify'` (default) — fires `onInvalidated`.
+- `'silent'` — internal housekeeping (e.g. eviction) that observers should not react to; never fires `onInvalidated`.
+
+`onInvalidated` fires only for `'notify'` invalidation. It never fires for `'silent'` invalidation, and therefore never for evictions — the eviction extension below invalidates silently. `sanitize()` and `clear()` don't fire it either; `clear()` has its own event (`onCleared`).
 
 Max-items eviction is not core — see `createEvictionExtension` below.
+
+### What's core vs. an extension
+
+Staleness policy is core: `useInvalidation()`'s `InvalidationConfig` is live-evaluated (getters re-run on every check), so per-key TTL, version counters, and external staleness signals are already covered without any extension. Access-recency LRU and refresh-ahead/soft-TTL policies are out of scope for now — they need a read-path hook (e.g. an `onAccessed` event) that doesn't exist yet.
 
 ## Extensions
 
@@ -128,6 +134,16 @@ const cache = new PromiseCache<User>(fetchUser)
 ```
 
 An `IPromiseCacheExtension<T, TKey, TExtShape>` can wrap the fetcher (`overrideFetcher`), add properties or methods to the instance (`extendShape`), hook into the lifecycle (`onStored`, `onInvalidated`, `onCleared`), and release resources (`dispose`) — each hook is documented in [`extensions.ts`](extensions.ts). Hook exceptions are caught and logged; they never break the cache operation or other hooks.
+
+### Events
+
+The lifecycle is also observable without `extend()`, via three `IEvent`s (`@zajno/common/observing/event`; `.on(handler)` returns the unsubscribe):
+
+- `onStored` — `{ key, value }`; every successful store (fetch result or `set()`), with the prepared value.
+- `onInvalidated` — `{ key }`; `'notify'` invalidations only.
+- `onCleared` — no payload; `clear()`, including the one `dispose()` runs.
+
+Extension hooks subscribe to these same events, so dispatch order is `extend()`/`.on()` call order.
 
 ### Batching — `createBatchingExtension`
 
@@ -150,6 +166,16 @@ Caps the cache at `maxItems`, evicting on every store: invalid entries first, th
 import { createEvictionExtension } from '@zajno/common/structures/promiseCache';
 
 cache.extend(createEvictionExtension({ maxItems: 500 }));
+```
+
+### Retry — createRetryExtension
+
+Wraps the fetcher with retry logic, backing off between attempts:
+
+```ts
+import { createRetryExtension } from '@zajno/common/structures/promiseCache';
+
+cache.extend(createRetryExtension({ retries: 3, delay: 1000, backoffMultiplier: 2 }));
 ```
 
 ### Writing a custom extension
@@ -222,6 +248,8 @@ const cache = new KeyedPromiseCache<Product, string>(
 await cache.get('p-1'); // registers 'product:p-1' → 'p-1'
 cache.keys();           // ['p-1']
 ```
+
+In registry mode, memory grows with the number of distinct ids ever used to fetch or store — the registry is only emptied by `clear()`. A `getLazy()` handle obtained before a `clear()` needs its id passed to a public method again before it can resolve. For large or unbounded id spaces, prefer `fromKey` — it avoids the registry entirely.
 
 `KeyedPromiseCache` implements `IControllablePromiseCache<T, K, TInitial>` — the full contract translated to take `id: K`, with `keys()` returning ids. Anything beyond the contract — invalidation policy, `extend()`, logging — is reached via the `cache` getter, which works with the inner string keys:
 

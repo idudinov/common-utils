@@ -1,4 +1,4 @@
-import type { IResettableModel } from '../models/types.js';
+import type { IResettableModel, ValueStorageProvider } from '../models/types.js';
 export type * from './extensions/types.js';
 
 /** Kinds of in-flight load — the only states whose `isLoading` report is overridable. */
@@ -125,3 +125,16 @@ export interface IControllableLazyPromise<T, TInitial extends T | undefined = un
  * @param refreshing - True when called via refresh(), false on initial load
  */
 export type LazyFactory<T> = (refreshing?: boolean) => Promise<T>;
+
+/** Constructor options for {@link LazyPromise}. */
+export type LazyPromiseOptions<T> = {
+    /** Supplies the value boxes backing internal state. Defaults to plain, non-observable boxes. */
+    storage?: ValueStorageProvider;
+
+    /**
+     * Pre-processes a value — resolved by the factory or injected via `setInstance()` — before it is stored.
+     *
+     * Useful for wrapping the value in an observable, e.g. `observable.object`.
+     */
+    prepareValue?: (value: T) => T;
+};
