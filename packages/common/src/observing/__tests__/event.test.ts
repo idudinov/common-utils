@@ -35,8 +35,8 @@ describe('Event', () => {
         });
         const handler3 = vi.fn();
 
-        e.trigger();
-        e.triggerAsync().catch((_err) => { /* suppress */ });
+        e.trigger(0);
+        e.triggerAsync(0).catch((_err) => { /* suppress */ });
 
         expect(e.expose()).toBe(e);
 

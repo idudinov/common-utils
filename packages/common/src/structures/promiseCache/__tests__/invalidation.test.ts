@@ -15,20 +15,20 @@ describe('PromiseCache invalidation', () => {
 
     describe('getIsValid', () => {
         test('returns false for non-cached items', () => {
-            const cache = new PromiseCache<string, string>(async id => id);
+            const cache = new PromiseCache<string>(async id => id);
             expect(cache.getIsValid('nonexistent')).toBe(false);
         });
 
         test('returns true for valid cached items', async () => {
-            const cache = new PromiseCache<string, string>(async id => id);
+            const cache = new PromiseCache<string>(async id => id);
             await cache.get('a');
             expect(cache.getIsValid('a')).toBe(true);
         });
 
         test('returns false for expired items', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
-            ).useInvalidationTime(50);
+            ).useInvalidation({ expirationMs: 50 });
 
             await cache.get('a');
             expect(cache.getIsValid('a')).toBe(true);
@@ -40,7 +40,7 @@ describe('PromiseCache invalidation', () => {
         test('returns false for callback-invalidated items', async () => {
             const invalidKeys = new Set<string>();
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation({
                 invalidationCheck: (key) => invalidKeys.has(key),
@@ -61,9 +61,9 @@ describe('PromiseCache invalidation', () => {
 
     describe('set', () => {
         test('sets a timestamp so time-based invalidation applies', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
-            ).useInvalidationTime(50);
+            ).useInvalidation({ expirationMs: 50 });
 
             cache.set('a', 'manual-value');
             expect(cache.getCurrent('a', false)).toBe('manual-value');
@@ -76,29 +76,8 @@ describe('PromiseCache invalidation', () => {
             expect(cache.getCurrent('a', false)).toBe('manual-value');
         });
 
-        test('is evictable by maxItems (has a timestamp for oldest-first eviction)', async () => {
-            const cache = new PromiseCache<string, string>(
-                async id => id,
-            ).useInvalidation({ maxItems: 2 });
-
-            // Manually set two values
-            cache.set('a', 'val-a');
-            await vi.advanceTimersByTimeAsync(5);
-            cache.set('b', 'val-b');
-
-            expect(cache.cachedCount).toBe(2);
-
-            // Fetch a third — should evict 'a' (oldest)
-            await cache.get('c');
-
-            expect(cache.cachedCount).toBe(2);
-            expect(cache.hasKey('a')).toBe(false);
-            expect(cache.hasKey('b')).toBe(true);
-            expect(cache.hasKey('c')).toBe(true);
-        });
-
         test('clears previous error for the key', async () => {
-            const cache = new PromiseCache<string, string>(async () => {
+            const cache = new PromiseCache<string>(async () => {
                 throw new Error('fetch failed');
             });
 
@@ -113,7 +92,7 @@ describe('PromiseCache invalidation', () => {
 
     describe('useInvalidation config', () => {
         test('supports expirationMs', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation({ expirationMs: 50 });
 
@@ -127,7 +106,7 @@ describe('PromiseCache invalidation', () => {
         test('supports invalidationCheck callback with timestamp', async () => {
             let threshold = Date.now() + 100;
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation({
                 invalidationCheck: (_key, _value, cachedAt) => cachedAt < threshold,
@@ -138,13 +117,13 @@ describe('PromiseCache invalidation', () => {
             expect(cache.getIsValid('a')).toBe(false);
 
             threshold = Date.now() - 100;
-            cache.invalidate('a');
+            cache.delete('a');
             await cache.get('a');
             expect(cache.getIsValid('a')).toBe(true);
         });
 
         test('always keeps stale value during invalidation (stale-while-revalidate)', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation({ expirationMs: 50 });
 
@@ -166,7 +145,7 @@ describe('PromiseCache invalidation', () => {
                 get expirationMs() { return expirationMs; },
             };
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation(config);
 
@@ -181,7 +160,7 @@ describe('PromiseCache invalidation', () => {
         });
 
         test('disabling invalidation with null', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation({ expirationMs: 50 });
 
@@ -196,9 +175,9 @@ describe('PromiseCache invalidation', () => {
 
     describe('sanitize', () => {
         test('removes invalidated items and returns count', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
-            ).useInvalidationTime(50);
+            ).useInvalidation({ expirationMs: 50 });
 
             await cache.get('a');
             await cache.get('b');
@@ -218,7 +197,7 @@ describe('PromiseCache invalidation', () => {
         test('only removes invalid items, keeps valid ones', async () => {
             const invalidKeys = new Set<string>();
 
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
             ).useInvalidation({
                 invalidationCheck: (key) => invalidKeys.has(key),
@@ -237,284 +216,35 @@ describe('PromiseCache invalidation', () => {
             expect(cache.hasKey('a')).toBe(false);
             expect(cache.hasKey('c')).toBe(false);
         });
-    });
 
-    describe('maxItems', () => {
+        test('does not announce removal of a key an earlier onRemoved handler re-added', async () => {
+            const removed: string[] = [];
 
-        test('evicts oldest items when limit is reached', async () => {
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, id),
-            ).useInvalidation({ maxItems: 3 });
+            const cache = new PromiseCache<string>(
+                async id => id,
+            ).useInvalidation({ expirationMs: 50 });
 
-            let p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.cachedCount).toBe(3);
-
-            p = cache.get('d');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.cachedCount).toBe(3);
-            expect(cache.hasKey('a')).toBe(false);
-            expect(cache.hasKey('b')).toBe(true);
-            expect(cache.hasKey('c')).toBe(true);
-            expect(cache.hasKey('d')).toBe(true);
-        });
-
-        test('evicts invalid items first before valid ones', async () => {
-            const invalidKeys = new Set<string>();
-
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, id),
-            ).useInvalidation({
-                maxItems: 3,
-                invalidationCheck: (key) => invalidKeys.has(key),
+            cache.onRemoved.on(({ key }) => {
+                removed.push(key);
+                if (key === 'a') {
+                    cache.set('b', 'revived'); // re-adds a key sanitize also purged, before its own onRemoved fires
+                }
             });
 
-            let p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
+            await cache.get('a');
+            await cache.get('b');
+            await vi.advanceTimersByTimeAsync(60);
 
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
+            // 'b' is purged along with 'a', but re-added before its own onRemoved turn comes up —
+            // announced count reflects that, not the raw purge count.
+            expect(cache.sanitize()).toBe(1);
 
-            p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            invalidKeys.add('b');
-
-            p = cache.get('d');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.cachedCount).toBe(3);
-            expect(cache.hasKey('a')).toBe(true);
-            expect(cache.hasKey('b')).toBe(false);
-            expect(cache.hasKey('c')).toBe(true);
-            expect(cache.hasKey('d')).toBe(true);
-        });
-
-        test('does not evict in-flight items', async () => {
-            const resolvers: Record<string, () => void> = {};
-
-            const cache = new PromiseCache<string, string>(
-                async id => {
-                    await new Promise<void>(resolve => { resolvers[id] = resolve; });
-                    return id;
-                },
-            ).useInvalidation({ maxItems: 2 });
-
-            const pa = cache.get('a');
-            const pb = cache.get('b');
-
-            resolvers.a();
-            await pa;
-
-            resolvers.b();
-            await pb;
-
-            expect(cache.cachedCount).toBe(2);
-
-            const pc = cache.get('c');
-            resolvers.c();
-            await pc;
-
-            expect(cache.cachedCount).toBe(2);
-            expect(cache.hasKey('a')).toBe(false);
+            expect(removed).toEqual(['a']);
             expect(cache.hasKey('b')).toBe(true);
-            expect(cache.hasKey('c')).toBe(true);
-        });
-
-        test('multiple sequential evictions maintain correct order', async () => {
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, id),
-            ).useInvalidation({ maxItems: 2 });
-
-            // Fill cache: a, b
-            let p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            // Add c → evicts a (oldest)
-            p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.hasKey('a')).toBe(false);
-            expect(cache.hasKey('b')).toBe(true);
-            expect(cache.hasKey('c')).toBe(true);
-
-            // Add d → evicts b (now oldest)
-            p = cache.get('d');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.hasKey('b')).toBe(false);
-            expect(cache.hasKey('c')).toBe(true);
-            expect(cache.hasKey('d')).toBe(true);
-
-            // Add e → evicts c (now oldest)
-            p = cache.get('e');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.hasKey('c')).toBe(false);
-            expect(cache.hasKey('d')).toBe(true);
-            expect(cache.hasKey('e')).toBe(true);
-        });
-
-        test('eviction order resets after clear()', async () => {
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, id),
-            ).useInvalidation({ maxItems: 2 });
-
-            // Fill cache: a, b
-            let p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            cache.clear();
-
-            // Re-fill: b first, then a
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            // Add c → should evict b (now oldest after clear)
-            p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.hasKey('b')).toBe(false);
-            expect(cache.hasKey('a')).toBe(true);
-            expect(cache.hasKey('c')).toBe(true);
-        });
-
-        test('invalidate + re-fetch updates eviction order', async () => {
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, id),
-            ).useInvalidation({ maxItems: 3 });
-
-            // Fill cache: a, b, c
-            let p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            // Invalidate 'a' and re-fetch it — now 'a' should be newest
-            cache.invalidate('a');
-            p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            // Add d → should evict 'b' (oldest), not 'a' (re-fetched)
-            p = cache.get('d');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.hasKey('a')).toBe(true);
-            expect(cache.hasKey('b')).toBe(false);
-            expect(cache.hasKey('c')).toBe(true);
-            expect(cache.hasKey('d')).toBe(true);
-        });
-
-        test('set() items are evictable in correct order', async () => {
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, id),
-            ).useInvalidation({ maxItems: 3 });
-
-            // Manually set two items
-            cache.set('a', 'val-a');
-            await vi.advanceTimersByTimeAsync(5);
-            cache.set('b', 'val-b');
-
-            // Fetch a third
-            let p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.cachedCount).toBe(3);
-
-            // Add d → should evict 'a' (oldest set() item)
-            p = cache.get('d');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.cachedCount).toBe(3);
-            expect(cache.hasKey('a')).toBe(false);
-            expect(cache.hasKey('b')).toBe(true);
-            expect(cache.hasKey('c')).toBe(true);
-            expect(cache.hasKey('d')).toBe(true);
-        });
-
-        test('refresh() updates eviction timestamp', async () => {
-            let counter = 0;
-            const cache = new PromiseCache<string, string>(
-                async id => delayedValue(5, `${id}-${++counter}`),
-            ).useInvalidation({ maxItems: 3 });
-
-            // Fill cache: a, b, c
-            let p = cache.get('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('b');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            p = cache.get('c');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            // Refresh 'a' — should update its timestamp to be newest
-            p = cache.refresh('a');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            // Add d → should evict 'b' (oldest), not 'a' (refreshed)
-            p = cache.get('d');
-            await vi.advanceTimersByTimeAsync(5);
-            await p;
-
-            expect(cache.hasKey('a')).toBe(true);
-            expect(cache.hasKey('b')).toBe(false);
-            expect(cache.hasKey('c')).toBe(true);
-            expect(cache.hasKey('d')).toBe(true);
         });
     });
 
-    describe('invalidate() during in-flight fetch', () => {
+    describe('delete() during in-flight fetch', () => {
         test('subsequent get() must start a new fetch', async () => {
             const fetcher = vi.fn(async (id: string) => {
                 return delayedValue(100, `value-${id}`);
@@ -526,21 +256,21 @@ describe('PromiseCache invalidation', () => {
             const p1 = cache.get('1');
             expect(cache.getIsLoading('1')).toBe(true);
 
-            // Invalidate while fetch is in-flight
+            // Delete while fetch is in-flight
             await vi.advanceTimersByTimeAsync(30);
-            cache.invalidate('1');
+            cache.delete('1');
 
-            // After invalidate, the key should look like it was never fetched
-            expect(cache.getIsLoading('1')).toBeUndefined();
+            // After delete, the key should look like it was never fetched
+            expect(cache.getIsLoading('1')).toBeNull();
 
             // Let the original fetch complete
             await vi.advanceTimersByTimeAsync(100);
             await p1;
 
             // After the stale fetch completes, the key must still be "never fetched"
-            // — invalidate()'s contract: "like it was never fetched/accessed"
+            // — delete()'s contract: "like it was never fetched/accessed"
             expect(cache.loadingCount).toBe(0);
-            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.getIsLoading('1')).toBeNull();
 
             // A new get() must start a fresh fetch, not return initial value
             fetcher.mockClear();
@@ -556,7 +286,7 @@ describe('PromiseCache invalidation', () => {
             expect(cache.loadingCount).toBe(0);
         });
 
-        test('failing in-flight fetch after invalidate() does not leave stale error', async () => {
+        test('failing in-flight fetch after delete() does not leave stale error', async () => {
             const fetcher = vi.fn(async (_id: string): Promise<string> => {
                 await delayedValue(100, undefined);
                 throw new Error('fetch failed');
@@ -567,15 +297,15 @@ describe('PromiseCache invalidation', () => {
             const p1 = cache.get('1');
 
             await vi.advanceTimersByTimeAsync(30);
-            cache.invalidate('1');
+            cache.delete('1');
 
             // Let the failing fetch complete
             await vi.advanceTimersByTimeAsync(100);
             await p1;
 
-            // invalidate()'s contract: no trace of the key
+            // delete()'s contract: no trace of the key
             expect(cache.getLastError('1')).toBeNull();
-            expect(cache.getIsLoading('1')).toBeUndefined();
+            expect(cache.getIsLoading('1')).toBeNull();
             expect(cache.loadingCount).toBe(0);
         });
     });

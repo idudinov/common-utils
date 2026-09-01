@@ -1,32 +1,32 @@
 
+import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+import type { IMapModel, ValueStorageProvider } from '../../models/types.js';
+
+export type { LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
+
 /**
- * Represents a state of a cached item. Holds a references to an actual state.
- * @deprecated Use `ILazyPromise<T>` from `@zajno/common/lazy` instead, obtained via `cache.getLazy(key)`.
+ * Supplies the observable primitives backing a {@link PromiseCache}'s internal storage.
  */
-export type DeferredGetter<T> = {
-    /** Get current resolved value, if any, or initiates fetching. */
-    readonly current: T | undefined;
+export interface PromiseCacheStorageProvider extends ValueStorageProvider {
+    /**
+     * Creates a keyed container for per-key cache state. Called during cache construction.
+     * Must be identity-preserving: values read back exactly as stored, never wrapped or converted.
+     */
+    createMap<K, V>(): IMapModel<K, V>;
+}
 
-    /** Returns a promise that resolves to the current or fetching value. */
-    readonly promise: Promise<T | undefined>;
+/** Constructor options for {@link PromiseCache}. */
+export interface PromiseCacheOptions<T> {
+    /** Supplies the observable storage primitives. Defaults to plain `Map`/`Model`. */
+    storage?: PromiseCacheStorageProvider;
 
-    /** Returns true if the item is currently being fetched. Returns undefined if fetching has not started yet. */
-    readonly isLoading: boolean | undefined;
-
-    /** Returns the last error that occurred during fetching, or null if no error occurred. */
-    readonly error: unknown;
-};
-
-export namespace DeferredGetter {
-    const _resolvedPromise = Promise.resolve<undefined>(undefined);
-
-    /** Empty resolved value. */
-    export const Empty = {
-        get current(): undefined { return undefined; },
-        get promise(): Promise<undefined> { return _resolvedPromise; },
-        get isLoading() { return false; },
-        get error() { return null; },
-    } satisfies DeferredGetter<never>;
+    /**
+     * Pre-processes a value — fetched or injected via `set()` — before it is stored.
+     *
+     * Useful for wrapping the value in an observable, e.g. `observable.object`.
+     */
+    prepareValue?: (value: T) => T;
 }
 
 /**
@@ -40,21 +40,15 @@ export namespace DeferredGetter {
 export type InvalidationCallback<T> = (key: string, value: T | undefined, cachedAt: number) => boolean;
 
 /** Callback for handling errors during fetching. */
-export type ErrorCallback<K> = (key: K, error: unknown) => void;
+export type ErrorCallback<TKey> = (key: TKey, error: unknown) => void;
 
 /**
  * Fetcher function signature for PromiseCache.
  *
- * @param id The key of the item to fetch.
+ * @param key The key of the item to fetch.
  * @param refreshing `true` when called via `refresh()`, `false` on initial `get()`.
  */
-export type PromiseCacheFetcher<T, K = string> = (id: K, refreshing?: boolean) => Promise<T>;
-
-/** Converts a non-string key to a string for internal cache storage. Resolves to `undefined` when `K` is `string`. */
-export type PromiseCacheKeyAdapter<K> = K extends string ? undefined : (k: K) => string;
-
-/** Parses a string key back to the original key type. Resolves to `undefined` when `K` is `string`. */
-export type PromiseCacheKeyParser<K> = K extends string ? undefined : (id: string) => K;
+export type PromiseCacheFetcher<T, TKey> = (key: TKey, refreshing?: boolean) => Promise<T>;
 
 /**
  * Configuration for cache invalidation policy.
@@ -71,20 +65,104 @@ export interface InvalidationConfig<T> {
      * Called in addition to time-based expiration.
      */
     readonly invalidationCheck?: InvalidationCallback<T> | null;
+}
+
+/**
+ * Consumer-facing contract for a keyed async cache, mirroring {@link ILazyPromise} at the collection level.
+ *
+ * Reading via `get`/`getLazy`/`getCurrent` may trigger a fetch; every other member is passive.
+ */
+export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined = undefined> {
+    /** Returns the current cached value, optionally triggering a fetch. Falls back to the initial value if configured. */
+    getCurrent(key: TKey, initiateFetch?: boolean): T | TInitial;
 
     /**
-     * Maximum number of items to hold in cache. When exceeded, invalid items are cleaned up first,
-     * then oldest valid items are removed to make room.
+     * Returns the loading state of an item.
      *
-     * Note: items currently being fetched (in-flight) are not evicted.
+     * Derived at read time from the pending kind per the configured loading-state strategy, so a strategy
+     * change applies to fetches already in flight.
      *
-     * Performance: eviction scans all cached timestamps linearly. Suitable for caches up to ~1000 items.
+     * @returns Strategy-derived value while a fetch is in flight; `false` once settled;
+     * `null` if never started, or after an explicit `delete()`.
      */
-    readonly maxItems?: number | null;
+    getIsLoading(key: TKey): boolean | null;
+
+    /** Returns the current pending kind for the key, or `null` if idle/settled. */
+    getPendingState(key: TKey): PendingLoadState | null;
 
     /**
-     * @deprecated This option is now ignored — stale values are always kept during invalidation (stale-while-revalidate).
-     * Use `invalidate()` followed by `get()` if you need to clear the stale value before re-fetching.
+     * Returns whether the key holds a resolved, error-free value.
+     * A stale (expired/invalidated) value still counts; an in-flight fetch or a stored error does not.
      */
-    readonly keepInstance?: boolean;
+    getHasValue(key: TKey): boolean;
+
+    /** Returns the last error that occurred during fetching for the specified key, or `null` if none. */
+    getLastError(key: TKey): unknown;
+
+    /** Returns whether the cached item for the specified key is valid (not expired and not invalidated by callback). */
+    getIsValid(key: TKey): boolean;
+
+    /** Returns true if the item is cached or fetching was initiated. Does not initiate fetching. */
+    hasKey(key: TKey): boolean;
+
+    /** Returns the number of cached items (resolved values). */
+    readonly cachedCount: number;
+
+    /**
+     * Returns an {@link ILazyPromise} handle for a specified cache key, usable anywhere a
+     * standalone `LazyPromise` is.
+     *
+     * @param strategy Optional per-handle `isLoading` override; unnamed pending states fall through
+     * to the cache-level report, not to the defaults.
+     */
+    getLazy(key: TKey, strategy?: LoadingStateStrategy): ILazyPromise<T, TInitial>;
+
+    /** Returns an iterator over the keys of the cached items. */
+    keys(iterate: true): MapIterator<TKey>;
+
+    /** Returns an array of the keys of the cached items. */
+    keys(): TKey[];
+
+    /**
+     * Returns a promise that resolves to the cached value of the item if loaded already, otherwise
+     * starts fetching and the promise will be resolved to the final value.
+     *
+     * Concurrent calls for the same key share the same promise until it resolves.
+     */
+    get(key: TKey): Promise<T | TInitial>;
+
+    /**
+     * Re-fetches the value for the specified key while keeping the stale cached value available.
+     *
+     * Implements stale-while-revalidate semantics:
+     * - The current cached value remains accessible via `getCurrent()` / `getLazy().value` during the refresh.
+     * - On success, the cached value is updated.
+     * - On error, the stale value is preserved and the error is stored.
+     * - Multiple concurrent refreshes use "latest wins" semantics.
+     */
+    refresh(key: TKey): Promise<T | TInitial>;
+}
+
+/**
+ * {@link IPromiseCache} plus direct cache manipulation, mirroring {@link IControllableLazyPromise} at the
+ * collection level.
+ */
+export interface IControllablePromiseCache<T, TKey = string, TInitial extends T | undefined = undefined>
+    extends IPromiseCache<T, TKey, TInitial> {
+    /** Injects a value into the cache for the specified key, as if it had been fetched. Sets the timestamp and clears any previous error. Cancels any in-flight fetch for this key. */
+    set(key: TKey, value: T): void;
+
+    /**
+     * Removes all per-key state (item, promise, status, error, timestamp) for the specified key;
+     * the next read refetches.
+     *
+     * @returns Whether any state existed for the key.
+     */
+    delete(key: TKey): boolean;
+
+    /** @deprecated Use {@link delete}. */
+    invalidate(key: TKey): void;
+
+    /** Clears the cache and resets the loading state. */
+    clear(): void;
 }

@@ -1,47 +1,34 @@
-import { observable, makeObservable, action } from 'mobx';
+import type { PromiseCacheFetcher } from '@zajno/common/structures/promiseCache';
 import { PromiseCache } from '@zajno/common/structures/promiseCache';
-import type { PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from '@zajno/common/structures/promiseCache';
-import { NumberModel } from '../viewModels/NumberModel.js';
-import type { IMapModel, IValueModel } from '@zajno/common/models/types';
+import { mobxStorageProvider, toObservableValue } from '../storage.js';
 
-export { DeferredGetter } from '@zajno/common/structures/promiseCache';
-export type { InvalidationConfig, InvalidationCallback, ErrorCallback, PromiseCacheFetcher, PromiseCacheKeyAdapter, PromiseCacheKeyParser } from '@zajno/common/structures/promiseCache';
+export {
+    DEFAULT_LOADING_STATE,
+} from '@zajno/common/structures/promiseCache';
 
-export class PromiseCacheObservable<T, K = string, TInitial extends T | undefined = undefined> extends PromiseCache<T, K, TInitial> {
+export type {
+    ErrorCallback,
+    InvalidationCallback,
+    InvalidationConfig,
+    LoadingStateStrategy,
+    PendingLoadState,
+    PromiseCacheFetcher,
+    PromiseCacheStorageProvider,
+} from '@zajno/common/structures/promiseCache';
+
+export { mobxStorageProvider } from '../storage.js';
+
+export class PromiseCacheObservable<T, TKey extends string = string, TInitial extends T | undefined = undefined> extends PromiseCache<T, TKey, TInitial> {
 
     private _observeItems = false;
 
     constructor(
-        fetcher: PromiseCacheFetcher<T, K>,
-        keyAdapter?: PromiseCacheKeyAdapter<K>,
-        keyParser?: PromiseCacheKeyParser<K>,
+        fetcher: PromiseCacheFetcher<T, TKey>,
         observeItems = false,
     ) {
-        super(fetcher, keyAdapter, keyParser);
-
-        makeObservable<
-            PromiseCacheObservable<T, K, TInitial>,
-            | 'setStatus'
-            | 'setPromise'
-            | 'onBeforeFetch'
-            | 'storeResult'
-            | 'onFetchComplete'
-            | 'onFetchSuperseded'
-            | 'onFetchCancelled'
-            | '_deleteKey'
-            | 'clear'
-            | 'sanitize'
-        >(this, {
-            setStatus: action,
-            setPromise: action,
-            onBeforeFetch: action,
-            storeResult: action,
-            onFetchComplete: action,
-            onFetchSuperseded: action,
-            onFetchCancelled: action,
-            _deleteKey: action,
-            clear: action,
-            sanitize: action,
+        super(fetcher, {
+            storage: mobxStorageProvider,
+            prepareValue: value => (this._observeItems ? toObservableValue(value, true) : value),
         });
 
         this._observeItems = observeItems;
@@ -50,26 +37,5 @@ export class PromiseCacheObservable<T, K = string, TInitial extends T | undefine
     useObserveItems(observeItems: boolean) {
         this._observeItems = observeItems;
         return this;
-    }
-
-    protected pure_createLoadingCount(): IValueModel<number> {
-        return new NumberModel();
-    }
-
-    protected pure_createItemsCache(): IMapModel<string, T> {
-        return observable.map<string, T>(undefined, { deep: false });
-    }
-
-    protected pure_createItemsStatus(): IMapModel<string, boolean> {
-        return observable.map<string, boolean>();
-    }
-
-    protected pure_createErrorsMap(): IMapModel<string, unknown> {
-        return observable.map<string, unknown>(undefined, { deep: false });
-    }
-
-    /** @override */
-    protected prepareResult(res: T) {
-        return this._observeItems ? observable.object(res) : res;
     }
 }

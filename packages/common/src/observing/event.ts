@@ -3,7 +3,7 @@ import { forEachAsync } from '../async/arrays.js';
 import { catchPromise } from '../functions/safe.js';
 import { Loggable } from '../logger/loggable.js';
 
-export type EventHandler<T = any> = (data?: T) => void | Promise<void>;
+export type EventHandler<T = any> = (data: T) => void | Promise<void>;
 type Unsubscribe = () => void;
 
 export interface IEvent<T = any> {
@@ -36,6 +36,9 @@ export class Event<T = any> extends Loggable implements IEvent<T> {
         this._handlers = this._handlers.filter(h => h !== handler);
     }
 
+    /** The zero-argument form exists only on `Event<void>`; payload-carrying events require `data`. */
+    public trigger(this: Event<void>): void;
+    public trigger(data: T): void;
     public trigger(data?: T) {
         if (!this._handlers.length) {
             return;
@@ -44,13 +47,16 @@ export class Event<T = any> extends Loggable implements IEvent<T> {
         const hh = this._handlers.slice(0);
         hh.forEach(cb => {
             try {
-                catchPromise(cb(data), err => this.logError(data, cb, err));
+                catchPromise(cb(data as T), err => this.logError(data, cb, err));
             } catch (err) {
                 this.logError(data, cb, err);
             }
         });
     }
 
+    /** {@link trigger} counterpart that awaits handlers and collects their errors. */
+    public triggerAsync(this: Event<void>): Promise<Error[]>;
+    public triggerAsync(data: T): Promise<Error[]>;
     public async triggerAsync(data?: T): Promise<Error[]> {
         if (!this._handlers.length) {
             return [];
@@ -62,7 +68,7 @@ export class Event<T = any> extends Loggable implements IEvent<T> {
 
         await forEachAsync(hh, async (cb: EventHandler<T>, index: number) => {
             try {
-                await cb(data);
+                await cb(data as T);
             } catch (err) {
                 this.logError(data, cb, err);
                 if (err instanceof Error) {
@@ -87,8 +93,8 @@ export class Event<T = any> extends Loggable implements IEvent<T> {
     }
 }
 
-export function oneTimeSubscription<T>(e: IEvent<T>, filter?: Predicate<T | undefined>): Promise<T | undefined> {
-    return new Promise<T | undefined>((resolve) => {
+export function oneTimeSubscription<T>(e: IEvent<T>, filter?: Predicate<T>): Promise<T> {
+    return new Promise<T>((resolve) => {
         let unsubscribe: Unsubscribe | null = null;
         unsubscribe = e.on(v => {
             if (!filter || filter(v)) {

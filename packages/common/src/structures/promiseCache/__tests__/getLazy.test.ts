@@ -120,33 +120,21 @@ describe('PromiseCache getLazy', () => {
         expect(lazy.isLoading).toBe(false);
     });
 
-    test('errorMessage returns formatted error string', async () => {
-        const cache = new PromiseCache<string>(async () => { throw new Error('fail'); });
-
-        const lazy = cache.getLazy('a');
-        expect(lazy.errorMessage).toBeNull();
-
-        await lazy.promise;
-        // errorMessage formats the error for display (deprecated, use .error instead)
-        expect(lazy.errorMessage).toBe('fail');
-        expect(lazy.error).toBeInstanceOf(Error);
-    });
-
-    test('isLoading returns null after invalidation', async () => {
+    test('isLoading stays false after passive (time-based) invalidation', async () => {
         const cache = new PromiseCache<string>(async id => id)
-            .useInvalidationTime(50);
+            .useInvalidation({ expirationMs: 50 });
 
         const lazy = cache.getLazy('a');
         await lazy.promise;
         expect(lazy.isLoading).toBe(false);
 
         await vi.advanceTimersByTimeAsync(60);
-        expect(lazy.isLoading).toBeNull(); // invalidated = not started
+        expect(lazy.isLoading).toBe(false); // expiry alone doesn't start a fetch; stale value still served
     });
 
     describe('counts', () => {
         test('cachedCount tracks resolved items', async () => {
-            const cache = new PromiseCache<string, string>(async id => id);
+            const cache = new PromiseCache<string>(async id => id);
 
             expect(cache.cachedCount).toBe(0);
 
@@ -159,7 +147,7 @@ describe('PromiseCache getLazy', () => {
             await cache.get('a');
             expect(cache.cachedCount).toBe(2);
 
-            cache.invalidate('a');
+            cache.delete('a');
             expect(cache.cachedCount).toBe(1);
 
             cache.clear();
@@ -168,7 +156,7 @@ describe('PromiseCache getLazy', () => {
 
         test('promisesCount tracks in-flight fetches', async () => {
             const resolvers: Record<string, (v: string) => void> = {};
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => new Promise(r => { resolvers[id] = r; }),
             );
 
@@ -191,7 +179,7 @@ describe('PromiseCache getLazy', () => {
 
         test('loadingCount tracks loading items', async () => {
             const resolvers: Record<string, (v: string) => void> = {};
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => new Promise(r => { resolvers[id] = r; }),
             );
 
@@ -210,9 +198,9 @@ describe('PromiseCache getLazy', () => {
         });
 
         test('invalidCount tracks expired items', async () => {
-            const cache = new PromiseCache<string, string>(
+            const cache = new PromiseCache<string>(
                 async id => id,
-            ).useInvalidationTime(50);
+            ).useInvalidation({ expirationMs: 50 });
 
             expect(cache.invalidCount).toBe(0);
 

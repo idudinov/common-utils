@@ -14,6 +14,8 @@ export class OneTimeLateEvent<T = any> extends Event<T> {
     private _triggeredWith: T | undefined = undefined;
     private _triggered = false;
 
+    trigger(this: OneTimeLateEvent<void>): void;
+    trigger(data: T): void;
     trigger(data?: T): void {
         if (this._triggered) {
             return;
@@ -22,9 +24,11 @@ export class OneTimeLateEvent<T = any> extends Event<T> {
         this._triggeredWith = data;
         this._triggered = true;
 
-        super.trigger(data);
+        super.trigger(data as T);
     }
 
+    triggerAsync(this: OneTimeLateEvent<void>): Promise<Error[]>;
+    triggerAsync(data: T): Promise<Error[]>;
     triggerAsync(data?: T): Promise<Error[]> {
         if (this._triggered) {
             return Promise.resolve([] as Error[]);
@@ -33,13 +37,13 @@ export class OneTimeLateEvent<T = any> extends Event<T> {
         this._triggeredWith = data;
         this._triggered = true;
 
-        return super.triggerAsync(data);
+        return super.triggerAsync(data as T);
     }
 
     on(handler: EventHandler<T>): () => void {
         if (this._triggered) {
             catchPromise(
-                handler(this._triggeredWith),
+                handler(this._triggeredWith as T),
             );
             // do not skip adding to handlers in case the event will be reset
         }

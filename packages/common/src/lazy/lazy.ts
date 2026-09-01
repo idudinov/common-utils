@@ -1,5 +1,4 @@
 import { tryDispose, type IDisposable } from '../functions/disposer.js';
-import { formatError } from '../functions/safe.js';
 import type { IResettableModel } from '../models/types.js';
 import type { IExpireTracker } from '../structures/expire.js';
 import type { ILazy } from './types.js';
@@ -26,11 +25,6 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
 
     public get currentValue() { return this._instance; }
     public get error(): unknown { return this._error; }
-
-    /** @deprecated Use {@link error} instead. */
-    public get errorMessage(): string | null {
-        return this._error != null ? formatError(this._error) : null;
-    }
 
     /** Override me: additional way to make sure instance is valid */
     protected get isValid() {

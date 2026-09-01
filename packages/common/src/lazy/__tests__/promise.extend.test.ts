@@ -1,7 +1,7 @@
 
 import { ExpireTracker } from '../../structures/expire.js';
+import type { ILazyPromiseExtension } from '../extensions/types.js';
 import { LazyPromise } from '../promise.js';
-import type { ILazyPromiseExtension } from '../types.js';
 
 /** Helper: creates a promise that resolves after `ms` milliseconds (works with fake timers). */
 function delay(ms: number): Promise<void> {

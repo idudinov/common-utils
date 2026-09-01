@@ -1,6 +1,6 @@
 
-import { PromiseCache } from '../index.js';
-import { delayedValue } from './helpers.js';
+import { createBatchingExtension, PromiseCache } from '../index.js';
+import { delayedError, delayedValue } from './helpers.js';
 import { describe, beforeEach, afterEach, test, expect, vi } from 'vitest';
 
 /**
@@ -49,7 +49,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return results;
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         // Request items 1 and 2 individually (they'll be batched together)
         const p1 = cache.get('1');
@@ -123,7 +123,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return results;
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         const p1 = cache.get('1');
         await vi.advanceTimersByTimeAsync(200);
@@ -159,7 +159,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return ids.map(id => `batch-${id}`);
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         // Request multiple keys — all will be batched together
         const promises = ['a', 'b', 'c'].map(id => cache.get(id));
@@ -205,7 +205,7 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
             return results;
         });
 
-        cache.useBatching(batchFetcher, 20);
+        cache.extend(createBatchingExtension(batchFetcher, 20));
 
         const lazy1 = cache.getLazy('1');
         void lazy1.promise;
@@ -224,5 +224,70 @@ describe('PromiseCache – batch fetcher populating cache via set()', () => {
         expect(lazyExtra.hasValue).toBe(true);
         expect(lazyExtra.value).toEqual({ id: 'extra' });
         expect(lazyExtra.isLoading).not.toBe(true);
+    });
+});
+
+describe('PromiseCache – batch fetch failure reporting (onBatchError)', () => {
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    test('onBatchError fires once with the full batch key list, and both keys still resolve via per-key fallback', async () => {
+        const individualFetcher = vi.fn(async (id: string): Promise<string> => {
+            return delayedValue(10, `individual-${id}`);
+        });
+
+        const cache = new PromiseCache<string>(individualFetcher);
+
+        const batchError = new Error('batch failed');
+        const batchFetcher = vi.fn(async (_ids: string[]): Promise<string[]> => {
+            return delayedError(20, batchError);
+        });
+
+        const onBatchError = vi.fn();
+
+        cache.extend(createBatchingExtension(batchFetcher, 20, onBatchError));
+
+        const p1 = cache.get('a');
+        const p2 = cache.get('b');
+
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(await p1).toBe('individual-a');
+        expect(await p2).toBe('individual-b');
+
+        expect(batchFetcher).toHaveBeenCalledTimes(1);
+        expect(onBatchError).toHaveBeenCalledTimes(1);
+        expect(onBatchError).toHaveBeenCalledWith(['a', 'b'], batchError);
+    });
+
+    test('a throwing onBatchError does not prevent the per-key fallback', async () => {
+        const individualFetcher = vi.fn(async (id: string): Promise<string> => {
+            return delayedValue(10, `individual-${id}`);
+        });
+
+        const cache = new PromiseCache<string>(individualFetcher);
+
+        const batchFetcher = vi.fn(async (_ids: string[]): Promise<string[]> => {
+            return delayedError(20, new Error('batch failed'));
+        });
+
+        const onBatchError = vi.fn(() => {
+            throw new Error('callback failed');
+        });
+
+        cache.extend(createBatchingExtension(batchFetcher, 20, onBatchError));
+
+        const p1 = cache.get('a');
+
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(await p1).toBe('individual-a');
+        expect(onBatchError).toHaveBeenCalledTimes(1);
     });
 });

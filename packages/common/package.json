@@ -1,6 +1,6 @@
 {
   "name": "@zajno/common",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Zajno's re-usable utilities for JS/TS projects",
   "private": false,
   "type": "module",
@@ -55,6 +55,7 @@
     "./fields": "./src/fields/index.ts",
     "./functions": "./src/functions/index.ts",
     "./lazy": "./src/lazy/index.ts",
+    "./lazy/extensions": "./src/lazy/extensions/index.ts",
     "./localization": "./src/localization/index.ts",
     "./logger": "./src/logger/index.ts",
     "./logger/buffered": "./src/logger/buffered/index.ts",
@@ -65,6 +66,7 @@
     "./structures/path": "./src/structures/path/index.ts",
     "./structures/path/utils": "./src/structures/path/utils/index.ts",
     "./structures/promiseCache": "./src/structures/promiseCache/index.ts",
+    "./structures/promiseCache/extensions": "./src/structures/promiseCache/extensions/index.ts",
     "./types": "./src/types/index.ts",
     "./validation": "./src/validation/index.ts"
   }

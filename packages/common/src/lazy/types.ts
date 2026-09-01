@@ -1,4 +1,21 @@
-import type { IResettableModel } from '../models/types.js';
+import type { IResettableModel, ValueStorageProvider } from '../models/types.js';
+export type * from './extensions/types.js';
+
+/** Kinds of in-flight load — the only states whose `isLoading` report is overridable. */
+export type PendingLoadState = 'loading' | 'revalidating' | 'refreshing';
+
+/**
+ * Per-pending-state override of the reported `isLoading` value.
+ * Missing keys fall back to {@link DEFAULT_LOADING_STATE}.
+ */
+export type LoadingStateStrategy = Partial<Record<PendingLoadState, boolean>>;
+
+/** Default `isLoading` report per pending state: true only when there is nothing usable to show. */
+export const DEFAULT_LOADING_STATE: Record<PendingLoadState, boolean> = {
+    'loading': true,
+    'revalidating': false,
+    'refreshing': false,
+};
 
 /** Represents a lazily loaded value that initializes on first access. */
 export interface ILazy<T> {
@@ -20,22 +37,18 @@ export interface ILazy<T> {
 
     /** Returns the raw error if loading failed, null otherwise. Does not trigger loading. */
     readonly error: unknown;
-
-    /**
-     * Returns error message (string) if loading failed, null otherwise. Does not trigger loading.
-     * @deprecated Use {@link error} instead — it preserves the original error for typed handling.
-     * If you need a display string, format the error at the presentation layer.
-     */
-    readonly errorMessage: string | null;
 }
 
 /** Represents a lazily asynchronously loaded value with promise-based access. */
 export interface ILazyPromise<T, TInitial extends T | undefined = undefined> extends ILazy<T | TInitial> {
     /**
-     * Returns loading state: true (loading), false (loaded), null/undefined (not started).
-     * Does not trigger loading.
+     * Returns loading state: `true` = loading with nothing usable to show (by default), `false` = settled
+     * or a background re-fetch is in flight, `null` = never started. Does not trigger loading.
      */
-    readonly isLoading: boolean | null | undefined;
+    readonly isLoading: boolean | null;
+
+    /** The kind of load currently in flight, or null when idle/settled. */
+    readonly pendingState: PendingLoadState | null;
 
     /**
      * Returns the promise for the value, triggering loading if not started.
@@ -90,14 +103,10 @@ export interface IResolvedLazyPromise<T, TInitial extends T | undefined = undefi
     readonly value: T;
     readonly currentValue: T;
     readonly hasValue: true;
-    readonly isLoading: false;
     readonly error: null;
 }
 
-/**
- * Controllable lazy promise with manual state management.
- * Extends ILazyPromise with methods to manually set values and reset state.
- */
+/** Controllable {@link ILazyPromise} with manual state management. */
 export interface IControllableLazyPromise<T, TInitial extends T | undefined = undefined>
     extends ILazyPromise<T, TInitial>, IResettableModel {
     /**
@@ -117,67 +126,15 @@ export interface IControllableLazyPromise<T, TInitial extends T | undefined = un
  */
 export type LazyFactory<T> = (refreshing?: boolean) => Promise<T>;
 
-/**
- * Extension for LazyPromise instances, enabling factory wrapping and instance augmentation.
- *
- * @template T - Value type the extension is compatible with (use `any` for universal extensions)
- * @template TExtShape - Additional properties/methods added to the instance
- *
- * @example
- * ```typescript
- * // Universal logging extension
- * const loggingExtension: ILazyPromiseExtension<any> = {
- *   overrideFactory: (original) => async (refreshing) => {
- *     console.log('Loading...');
- *     return await original(refreshing);
- *   }
- * };
- * ```
- */
-export interface ILazyPromiseExtension<T = any, TExtShape extends object = object> {
+/** Constructor options for {@link LazyPromise}. */
+export type LazyPromiseOptions<T> = {
+    /** Supplies the value boxes backing internal state. Defaults to plain, non-observable boxes. */
+    storage?: ValueStorageProvider;
 
-  /**
-   * Augment the instance with additional properties/methods.
-   * Receives IControllableLazyPromise with setInstance() and reset() for manual control.
-   *
-   * @param previous - The controllable LazyPromise instance
-   * @returns The instance with additional shape
-   */
-  extendShape?: <TInitial extends T | undefined = undefined>(
-    previous: IControllableLazyPromise<T, TInitial>
-  ) => IControllableLazyPromise<T, TInitial> & TExtShape;
-
-  /**
-   * Wrap or replace the factory function.
-   *
-   * @param original - The original factory function
-   * @param target - The LazyPromise instance being extended
-   * @returns A new factory function
-   */
-  overrideFactory?: <TInitial extends T | undefined = undefined>(
-    original: LazyFactory<T>,
-    target: ILazyPromise<T, TInitial> & TExtShape
-  ) => LazyFactory<T>;
-
-  /**
-   * Cleanup function called when the LazyPromise is disposed.
-   * Use for cleaning up resources (timers, subscriptions, listeners).
-   * Executes in reverse order: newest extension first, oldest last.
-   *
-   * @param instance - The extended LazyPromise instance being disposed
-   *
-   * @example
-   * ```typescript
-   * const intervalExtension: ILazyPromiseExtension<any, { stopTimer: () => void }> = {
-   *   extendShape: (instance) => {
-   *     let intervalId: NodeJS.Timeout | null = null;
-   *     return Object.assign(instance, {
-   *       stopTimer: () => { if (intervalId) clearInterval(intervalId); }
-   *     });
-   *   },
-   *   dispose: (instance) => instance.stopTimer()
-   * };
-   * ```
-   */
-  dispose?: (instance: ILazyPromise<T, any> & TExtShape) => void;
-}
+    /**
+     * Pre-processes a value — resolved by the factory or injected via `setInstance()` — before it is stored.
+     *
+     * Useful for wrapping the value in an observable, e.g. `observable.object`.
+     */
+    prepareValue?: (value: T) => T;
+};

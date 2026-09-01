@@ -3,7 +3,8 @@ import { Lazy, type ILazyPromise, type ILazyPromiseExtension, type LazyFactory }
 import { LazyPromise } from '@zajno/common/lazy/promise';
 import { extendObject } from '@zajno/common/structures/extendObject';
 import { assert } from '@zajno/common/functions/assert';
-import { action, makeObservable, observable, Reaction } from 'mobx';
+import { action, makeObservable, Reaction } from 'mobx';
+import { mobxStorageProvider, toObservableValue } from '../storage.js';
 import { ObservableTypes } from '../observing/types.js';
 
 export class LazyObservable<T> extends Lazy<T> {
@@ -53,22 +54,17 @@ export class LazyPromiseObservable<T, TInitial extends T | undefined = undefined
             _observableType = observableType ?? ObservableTypes.Default;
         }
 
-        super(factory, initial);
+        const prepareValue: (value: T) => T = _observableType === ObservableTypes.Full
+            ? value => toObservableValue(value, true)
+            : _observableType === ObservableTypes.Shallow
+                ? value => toObservableValue(value, false)
+                : value => value;
 
-        makeObservable<
-            LazyPromise<T, TInitial>,
-            '_instance' | '_state' | 'updateState' | 'onRejected' | '_error' | 'setError' | 'clearError'
-        >(this, {
-            _instance: ObservableTypes.toDecorator(_observableType),
-            _state: observable,
-            _error: observable,
-            setInstance: action,
-            updateState: action,
-            setError: action,
-            clearError: action,
-            onRejected: action,
-            reset: action,
-        });
+        const preparedInitial = (initial !== undefined && _observableType !== ObservableTypes.Ref
+            ? prepareValue(initial)
+            : initial) as TInitial | undefined;
+
+        super(factory, preparedInitial, { storage: mobxStorageProvider, prepareValue });
 
         if (_observing) {
             const options = typeof _observing === 'object' ? _observing : {};

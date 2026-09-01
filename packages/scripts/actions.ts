@@ -18,6 +18,19 @@ function bundle() {
         fs.copyFileSync(file, path.join(dist, path.basename(file)));
     }
 
+    // nested module READMEs ship with the package so docs are readable from node_modules
+    const src = path.join(cwd, 'src');
+    if (fs.existsSync(src)) {
+        for (const rel of fs.readdirSync(src, { recursive: true, encoding: 'utf8' })) {
+            if (path.basename(rel) !== 'README.md') {
+                continue;
+            }
+            const target = path.join(dist, rel);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.copyFileSync(path.join(src, rel), target);
+        }
+    }
+
     generateExports({ cwd, srcMode: false });
 }
 

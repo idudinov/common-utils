@@ -13,8 +13,7 @@ describe('PromiseCache.useInitialValue', () => {
         vi.useRealTimers();
     });
 
-    // ─── Static initial value ────────────────────────────────────────────
-
+    // --- Static initial value ---
     test('getCurrent returns initial value before fetch', () => {
         const cache = new PromiseCache<string>(async (id) => delayedValue(10, `fetched-${id}`))
             .useInitialValue('loading...');
@@ -56,8 +55,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(lazy.hasValue).toBe(true);
     });
 
-    // ─── Per-key factory ─────────────────────────────────────────────────
-
+    // --- Per-key factory ---
     test('per-key factory returns different initial values', () => {
         const cache = new PromiseCache<{ id: string; name: string }>(
             async (id) => delayedValue(10, { id, name: `User ${id}` }),
@@ -67,8 +65,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(cache.getCurrent('b', false)).toEqual({ id: 'b', name: 'Loading...' });
     });
 
-    // ─── Error fallback ──────────────────────────────────────────────────
-
+    // --- Error fallback ---
     test('on error with no stale value, resolves to initial value', async () => {
         const cache = new PromiseCache<string>(async () => {
             await new Promise(r => setTimeout(r, 10));
@@ -107,8 +104,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(cache.getLastError('a')).toBeInstanceOf(Error);
     });
 
-    // ─── getLazy() integration ───────────────────────────────────────────
-
+    // --- getLazy() integration ---
     test('getLazy().value returns initial value before fetch', () => {
         const cache = new PromiseCache<string>(async (id) => delayedValue(10, id))
             .useInitialValue('init');
@@ -153,8 +149,7 @@ describe('PromiseCache.useInitialValue', () => {
         expect(await rp).toBe(2);
     });
 
-    // ─── Type narrowing ─────────────────────────────────────────────────
-
+    // --- Type narrowing ---
     test('without useInitialValue, getCurrent returns T | undefined', () => {
         const cache = new PromiseCache<string>(async (id) => id);
 
@@ -172,9 +167,8 @@ describe('PromiseCache.useInitialValue', () => {
         expect(val).toBe('default');
     });
 
-    // ─── invalidate() resets to initial value ────────────────────────────
-
-    test('after invalidate, getCurrent returns initial value', async () => {
+    // --- delete() resets to initial value ---
+    test('after delete, getCurrent returns initial value', async () => {
         const cache = new PromiseCache<string>(async (id) => delayedValue(10, `fetched-${id}`))
             .useInitialValue('init');
 
@@ -183,12 +177,12 @@ describe('PromiseCache.useInitialValue', () => {
         await p;
         expect(cache.getCurrent('a', false)).toBe('fetched-a');
 
-        cache.invalidate('a');
+        cache.delete('a');
         expect(cache.getCurrent('a', false)).toBe('init');
     });
 });
 
-describe('PromiseCache invalidate cancels active fetches', () => {
+describe('PromiseCache delete cancels active fetches', () => {
 
     beforeEach(() => {
         vi.useFakeTimers();
@@ -198,27 +192,27 @@ describe('PromiseCache invalidate cancels active fetches', () => {
         vi.useRealTimers();
     });
 
-    test('invalidate during in-flight fetch prevents result from being stored', async () => {
+    test('delete during in-flight fetch prevents result from being stored', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
 
         // Start fetch
         const p = cache.get('a');
 
-        // Invalidate while fetch is in-flight
+        // Delete while fetch is in-flight
         await vi.advanceTimersByTimeAsync(10);
-        cache.invalidate('a');
+        cache.delete('a');
 
         // Advance past the fetch
         await vi.advanceTimersByTimeAsync(50);
         await p;
 
-        // The fetch result should NOT have been stored (invalidate cancelled it)
+        // The fetch result should NOT have been stored (delete cancelled it)
         expect(cache.getCurrent('a', false)).toBeUndefined();
         expect(cache.cachedCount).toBe(0);
     });
 
-    test('invalidate during in-flight refresh prevents result from being stored', async () => {
+    test('delete during in-flight refresh prevents result from being stored', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(50, ++counter));
 
@@ -231,9 +225,9 @@ describe('PromiseCache invalidate cancels active fetches', () => {
         // Start refresh
         const refreshPromise = cache.refresh('a');
 
-        // Invalidate while refresh is in-flight
+        // Delete while refresh is in-flight
         await vi.advanceTimersByTimeAsync(10);
-        cache.invalidate('a');
+        cache.delete('a');
 
         // Advance past the refresh
         await vi.advanceTimersByTimeAsync(50);

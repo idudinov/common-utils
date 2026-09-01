@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { IKeyedStorage, IKeyedStorageSync } from '../../storage/types.js';
-import { createCacheExtension } from '../extensions.js';
+import { createCacheExtension } from '../extensions/index.js';
 import { LazyPromise } from '../promise.js';
 
 describe('createCacheExtension', () => {
@@ -237,7 +237,7 @@ describe('createCacheExtension', () => {
 
             expect(storage.setValue).not.toHaveBeenCalled();
             expect(cached.error).toBeInstanceOf(Error);
-            expect(cached.errorMessage).toBe('Network error');
+            expect((cached.error as Error).message).toBe('Network error');
         });
     });
 

@@ -6,20 +6,12 @@ A key-value cache for async data that goes well beyond a simple `Map<string, Pro
 - **Synchronous access** — `getCurrent()` returns the resolved value instantly; `getLazy()` gives a reactive `ILazyPromise<T>` handle
 - **Per-key error tracking** — fetch failures are stored, logged, and forwarded to an optional callback
 - **Stale-while-revalidate** — invalidated items remain readable; `refresh(key)` re-fetches without clearing the stale value
-- **Invalidation** — time-based TTL, custom callback, or both
-- **Max-items eviction** — LRU-like eviction that removes invalid items first, then oldest; never evicts in-flight fetches
-- **Request batching** — collects keys in a time window and dispatches a single batch call, with automatic per-key fallback on failure
+- **Invalidation** — time-based TTL, custom callback, or both; `onRemoved` fires for every per-key removal
 - **Safe `clear()`** — a version counter prevents stale in-flight fetches from silently re-populating the cache
-- **Extensible** — internal storage is created via overridable factory methods, making it easy to integrate with MobX, Vue, or other reactivity systems
+- **Composable storage** — a `storage` provider supplies the observable primitives, so MobX, Vue, or any other reactivity system plugs in without subclassing
+- **Extensible** — `extend()` wraps the fetcher, augments the instance shape, and hooks into store/delete/clear, mirroring `LazyPromise.extend`; batching and eviction ship as extensions
 
-## Module Structure
-
-| File | Description |
-|---|---|
-| [`types.ts`](types.ts) | Type definitions — `DeferredGetter<T>` *(deprecated)*, `InvalidationCallback<T>`, `ErrorCallback<K>`, `InvalidationConfig<T>` |
-| [`core.ts`](core.ts) | Abstract base class `PromiseCacheCore<T, K>` — storage, state tracking, hooks, `pure_create*` factory methods |
-| [`cache.ts`](cache.ts) | Concrete implementation `PromiseCache<T, K>` — fetching, batching, invalidation, error handling, max-items eviction |
-| [`index.ts`](index.ts) | Barrel re-export of all public API |
+This README covers concepts and usage. The reference for individual members is the docstrings in the source, primarily [`types.ts`](types.ts) and [`extensions/`](extensions/).
 
 ## Quick Start
 
@@ -55,165 +47,261 @@ typedLazy.value;    // User (never undefined — initial value used before fetch
 await typedLazy.promise; // Promise<User>
 ```
 
-## Non-String Keys
+## The Contract
 
-When the cache key type `K` is not `string`, provide a **key adapter** (serialize) and optionally a **key parser** (deserialize):
+[`types.ts`](types.ts) defines two interfaces, mirroring `ILazyPromise` / `IControllableLazyPromise` at the collection level:
 
-```ts
-const cache = new PromiseCache<Product, number>(
-    async (id) => fetchProduct(id),
-    (id) => id.toString(),   // keyAdapter: K → string
-    (str) => Number(str),    // keyParser: string → K
-);
+- `IPromiseCache<T, TKey, TInitial>` — consumption. Reading via `get`/`getLazy`/`getCurrent` may trigger a fetch; every other member is passive.
+- `IControllablePromiseCache<T, TKey, TInitial>` — adds manipulation: `set`, `delete`, `clear`.
 
-await cache.get(42);
-cache.keysParsed(); // number[]
-```
+`PromiseCache` implements the controllable one; code that only reads should depend on `IPromiseCache`.
 
-## Configuration (Fluent API)
+## Configuration
 
-All configuration methods return `this` for chaining.
+### Constructor options
 
-### Batching — `useBatching()`
+`new PromiseCache(fetcher, options?)` takes two options:
 
-Collects individual `get()` calls within a short window and dispatches them as a single batch request. If the batch fails, each item falls back to the individual fetcher.
+- `storage` — a `PromiseCacheStorageProvider` supplying the observable primitives backing the cache: a keyed map, a value box, and an optional `transaction` batcher for reactivity systems that need mutations grouped into one change batch. This is what makes `PromiseCacheObservable` (`@zajno/common-mobx`) a thin preset instead of a subclass full of overrides. Default: plain `Map` and a `Model` box, no batching.
+- `prepareValue` — pre-processes a value (fetched or injected via `set()`) before it's stored. Useful for wrapping it in an observable, e.g. `observable.object`.
 
-```ts
-cache.useBatching(async (ids: string[]) => {
-    const res = await fetch(`/api/users?ids=${ids.join(',')}`);
-    return res.json(); // must return results in the same order as ids
-}, 200 /* delay ms, default 200 */);
-```
+### Fluent `use*` builders
 
-> **Important:** The resolved array **must** have the same order as the input `ids` array.
-
-### Invalidation — `useInvalidation()` / `useInvalidationTime()`
+All return `this` for chaining.
 
 ```ts
-// Simple time-based expiration
-cache.useInvalidationTime(60_000); // 60 seconds
+cache.useInvalidation({ expirationMs: 60_000 });          // time-based TTL
+cache.useInvalidation({ invalidationCheck: (key, value, cachedAt) => value?.isStale === true });
+cache.useInvalidation(null);                              // disable
 
-// Advanced config
-cache.useInvalidation({
-    expirationMs: 60_000,                          // time-based
-    invalidationCheck: (key, value, cachedAt) => {  // callback-based
-        return value?.isStale === true;
-    },
-    maxItems: 100,       // LRU-like eviction (invalid first, then oldest)
-});
+cache.useOnError((key, error) => reportToSentry(error, { cacheKey: key }));
 
-// Disable invalidation
-cache.useInvalidation(null);
+cache.useInitialValue({ name: 'Loading...', id: '' });    // static
+cache.useInitialValue((key) => ({ name: 'Loading...', id: key })); // per-key factory
+
+cache.useLoadingState({ revalidating: false });           // silence the spinner on passive re-fetch
 ```
 
-The config object is stored **by reference** (not destructured), so getter-based fields are re-evaluated on every access — enabling dynamic invalidation policies:
+`useInvalidation`'s config object is stored by reference (not destructured), so getter-based fields are re-evaluated on every access — useful for dynamic policies:
 
 ```ts
 let ttl = 60_000;
-cache.useInvalidation({
-    get expirationMs() { return ttl; },
-});
-// later: ttl = 5_000; — takes effect immediately
+cache.useInvalidation({ get expirationMs() { return ttl; } });
+// later: ttl = 5_000 — takes effect immediately
 ```
 
-### Initial Value — `useInitialValue()`
+`useInitialValue`'s value is **not** stored in the cache — it's a synthetic default (same as `LazyPromise`'s initial value); `getHasValue` stays `false` until a real fetch completes.
 
-Provides a default value returned before the fetch completes or on error when no stale value exists. Eliminates `undefined` from the return types.
+`useLoadingState` overrides what `getIsLoading`/`getLazy().isLoading` report for one or more pending states, cache-wide. `getLazy(key, strategy)` accepts the same shape per-handle: named states report the handle's own value, unnamed states fall through to the cache-level report.
 
-```ts
-// Static value for all keys
-const cache = new PromiseCache<User>(fetchUser)
-    .useInitialValue({ name: 'Loading...', id: '' });
+| Pending state | Trigger | Default `isLoading` |
+|---|---|---|
+| `'loading'` | no usable value (first load, cold refresh, retry after error) | `true` |
+| `'revalidating'` | stale value, passive `get()`/`.value` on expiry | `false` |
+| `'refreshing'` | stale value, explicit `refresh()` | `false` |
 
-// Per-key factory
-const cache = new PromiseCache<User>(fetchUser)
-    .useInitialValue((key) => ({ name: 'Loading...', id: key }));
-```
-
-The initial value is **not** stored in the cache — it's a synthetic default (same as `LazyPromise`'s initial value). `hasValue` remains `false` until a real fetch completes.
-
-### Error Callback — `useOnError()`
-
-```ts
-cache.useOnError((key, error) => {
-    reportToSentry(error, { cacheKey: key });
-});
-```
+> A retry after a failed refresh reports `isLoading === false` by default — kind `'refreshing'`, stale value present, error set — since the trigger is a retry, not a first load. Pass `{ refreshing: true }` to `useLoadingState`, or read `getPendingState`/`pendingState` directly, to show a spinner during that retry too. That's for an explicit `refresh()` retry only — a passive `get()`-driven retry of an expired entry reports kind `'revalidating'` instead; pass `{ revalidating: true }` for that path.
 
 ### Logging
 
-Inherited from `Loggable`. Attach a logger to see internal cache operations:
-
-```ts
-cache.setLoggerFactory(createLogger, 'UserCache');
-// or
-cache.setLogger(myLoggerInstance);
-```
-
-## API Reference
-
-### Reading
-
-| Method / Property | Return Type | Description |
-|---|---|---|
-| `get(id)` | `Promise<T \| TInitial>` | Returns cached value or starts a fetch. Concurrent calls for the same key share one promise. `TInitial` defaults to `undefined`; use `useInitialValue()` to narrow it. |
-| `refresh(id)` | `Promise<T \| TInitial>` | Re-fetches the value while keeping the stale cached value available. On error, preserves the stale value. Multiple concurrent refreshes use "latest wins" semantics. |
-| `getCurrent(id, initiateFetch?)` | `T \| TInitial` | Returns the cached value synchronously. When `initiateFetch` is `true` (default), also triggers `get()`. Falls back to the initial value if no cached value exists. |
-| `getLazy(id)` | `ILazyPromise<T, TInitial>` | Returns an `ILazyPromise<T, TInitial>` handle — the same interface used by standalone `LazyPromise`. Supports `value`, `currentValue`, `promise`, `isLoading`, `error`, `hasValue`, and `refresh()`. |
-| `getDeferred(id)` | `DeferredGetter<T>` | ⚠️ **Deprecated.** Use `getLazy(id)` instead. |
-| `getIsLoading(id)` | `boolean \| undefined` | `true` if loading, `false` if done, `undefined` if never started (or invalidated). |
-| `getIsValid(id)` | `boolean` | `true` if the item is cached **and** not invalidated. |
-| `getLastError(id)` | `unknown` | Last fetch error for the key, or `null`. |
-| `hasKey(id)` | `boolean` | `true` if the item is cached or a fetch was initiated. Does **not** trigger a fetch. |
-| `keys()` | `string[]` | Array of all cached string keys. |
-| `keys(true)` | `MapIterator<string>` | Iterator over cached string keys. |
-| `keysParsed()` | `K[] \| null` | Parsed keys via `keyParser`, or `null` if no parser was provided. |
-| `keysParsed(true)` | `Generator<K> \| null` | Lazy iterator of parsed keys. |
-
-### Counts
-
-| Property | Type | Description |
-|---|---|---|
-| `loadingCount` | `number` | Number of items currently being fetched. |
-| `cachedCount` | `number` | Number of resolved items in cache. |
-| `promisesCount` | `number` | Number of in-flight promises. |
-| `invalidCount` | `number` | Number of cached items that are currently invalid/expired. |
-
-### Mutation
-
-| Method | Description |
-|---|---|
-| `invalidate(id)` | Removes the cached item, its error, and timestamp — as if it was never fetched. |
-| `set(id, value)` | Injects a value into the cache as if it had been fetched. Sets the timestamp and clears any previous error. |
-| `sanitize()` | Removes all currently-invalid items. Returns the count of removed items. |
-| `clear()` | Resets **all** state: items, statuses, promises, errors, timestamps, loading count, and batch queue. |
+Inherited from `Loggable`: `cache.setLoggerFactory(createLogger, 'UserCache')`, or `cache.setLogger(myLoggerInstance)`.
 
 ## Invalidation & Eviction
 
-`InvalidationConfig<T>` controls when cached items are considered stale:
+`useInvalidation()` accepts an `InvalidationConfig<T>`: a time-based TTL (`expirationMs`), a custom check (`invalidationCheck`), or both.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `expirationMs` | `number \| null` | `undefined` | Time-to-live in ms. `null`/`undefined` disables time-based expiration. |
-| `invalidationCheck` | `(key, value, cachedAt) => boolean` | `undefined` | Custom callback; return `true` to mark the item invalid. |
-| `maxItems` | `number \| null` | `undefined` | Maximum cache size. Eviction order: invalid items first, then oldest by timestamp. In-flight items are never evicted. |
+Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sanitize()` sweeps them out and returns the removed count.
 
-> **Note:** Invalidated items always remain readable via `getCurrent()` (stale-while-revalidate). To fully clear a value before re-fetching, use `invalidate(id)` followed by `get(id)`.
+`delete(key)` removes all per-key state; the next read refetches. `onRemoved` fires for every per-key removal — `delete()` (including extension-driven ones such as eviction) and `sanitize()`. It does not fire for `clear()`, which has its own event (`onCleared`). `invalidate(key)` is a deprecated alias for `delete(key)`.
 
-## Error Handling
+Max-items eviction is not core — see `createEvictionExtension` below.
 
-When a fetcher throws, the error is:
-1. Stored per-key in the errors map (accessible via `getLastError(id)` or `getLazy(id).error`)
-2. Logged via the attached logger
-3. Forwarded to the `useOnError()` callback (if set)
+> A read of an expired value whose revalidation keeps failing retries on every read (the entry never becomes valid again on its own). Throttle at the call site, or use `invalidationCheck` to hold the value valid despite the failure. A failed *first* fetch — no value was ever stored — has no TTL to expire from: the error is sticky until `refresh(key)` or `delete(key)` retries it.
 
-The failed fetch resolves to `undefined` for initial fetches, or to the **stale cached value** for refreshes (stale-while-revalidate). The error is recorded per-key. On a subsequent successful fetch, the error is cleared by `storeResult()`.
+### What's core vs. an extension
 
-Errors are also cleared by `invalidate()`, `sanitize()`, and `clear()`.
+Staleness policy is core: `useInvalidation()`'s `InvalidationConfig` is live-evaluated (getters re-run on every check), so per-key TTL, version counters, and external staleness signals are already covered without any extension. Access-recency LRU and refresh-ahead/soft-TTL policies are out of scope for now — they need a read-path hook (e.g. an `onAccessed` event) that doesn't exist yet.
+
+## Extensions
+
+`extend()` mirrors `LazyPromise.extend`: it mutates the instance in place, chaining wraps in call order, and returns `this` typed with any shape addition:
+
+```ts
+const cache = new PromiseCache<User>(fetchUser)
+    .extend(createBatchingExtension(batchFetchUsers))
+    .extend(createEvictionExtension({ maxItems: 500 }));
+```
+
+An `IPromiseCacheExtension<T, TKey, TExtShape>` can wrap the fetcher (`overrideFetcher`), add properties or methods to the instance (`extendShape`), hook into the lifecycle (`onStored`, `onRemoved`, `onCleared`), and release resources (`dispose`) — each hook is documented in [`extensions/types.ts`](extensions/types.ts). Hook exceptions are caught and logged; they never break the cache operation or other hooks.
+
+### Events
+
+The lifecycle is also observable without `extend()`, via three `IEvent`s (`@zajno/common/observing/event`; `.on(handler)` returns the unsubscribe):
+
+- `onStored` — `{ key, value }`; every successful store (fetch result or `set()`), with the prepared value.
+- `onRemoved` — `{ key }`; every per-key removal — `delete()` and `sanitize()`.
+- `onCleared` — no payload; `clear()`, including the one `dispose()` runs.
+
+Extension hooks subscribe to these same events, so dispatch order is `extend()`/`.on()` call order.
+
+### Batching — `createBatchingExtension`
+
+Collects individual fetches within a delay window and dispatches one batch call:
+
+```ts
+import { createBatchingExtension } from '@zajno/common/structures/promiseCache';
+
+cache.extend(createBatchingExtension(async (ids: string[]) => {
+    const res = await fetch(`/api/users?ids=${ids.join(',')}`);
+    return res.json(); // must be in the same order as ids
+}, 200 /* delay ms, default 200 */));
+```
+
+### Eviction — `createEvictionExtension`
+
+Caps the cache at `maxItems`, evicting on every store: invalid entries first, then the oldest by insertion order.
+
+```ts
+import { createEvictionExtension } from '@zajno/common/structures/promiseCache';
+
+cache.extend(createEvictionExtension({ maxItems: 500 }));
+```
+
+### Retry — createRetryExtension
+
+Wraps the fetcher with retry logic, backing off between attempts:
+
+```ts
+import { createRetryExtension } from '@zajno/common/structures/promiseCache';
+
+cache.extend(createRetryExtension({ retries: 3, delay: 1000, backoffMultiplier: 2 }));
+```
+
+### Live subscriptions — createSubscriptionExtension
+
+Adapts a live source — `(key, emit) => DisposeFunction | Promise<DisposeFunction>` — into a fetcher: the first emission resolves the fetch, later ones update the cached value. The source must emit at least once or fail; one that never does leaves the fetch pending.
+
+```ts
+import { createSubscriptionExtension } from '@zajno/common/structures/promiseCache';
+
+const live = createSubscriptionExtension<User>(subscribeToUser, { policy: 'forever' });
+const users = new PromiseCache<User>(live.fetch).extend(live);
+```
+
+`policy` (default `'forever'`) sets the subscription's lifetime after the first emission — a static value, or `(key) => SubscriptionPolicy` resolved once per `fetch()` call:
+
+- `'off'` — unsubscribe right away: a one-shot fetch.
+- `'forever'` — keep it until the key is removed — `delete()` (including eviction, which deletes keys over the limit), `clear()`, or `dispose()`.
+- `{ ttlMs }` — keep it for `ttlMs` since the last emission, then unsubscribe and delete the key, so the next read re-subscribes. `SHORT_SUBSCRIPTION_TTL_MS` is a ready-made 5 minutes.
+
+It replaces the cache's fetcher instead of wrapping it and owns that cache's subscriptions, so create one instance per cache and apply it before the first fetch — `fetch` on its own rejects. Dispose it via the cache's `dispose()`, not the extension's own `dispose()` directly — the cache's `dispose()` already runs it.
+
+On a live-subscribed key, a source emission always wins over a concurrent consumer `set()` — the source is authoritative for subscribed data. A `set()` while the first fetch is pending cancels that fetch, so the source's first emission is discarded; emissions after it apply normally.
+
+`merge?: (current: T, incoming: T) => T` folds an update emission into the current value instead of replacing it wholesale — useful with `PromiseCacheObservable.useObserveItems(true)`, where replacing the value would otherwise re-render every field's observers:
+
+```ts
+const live = createSubscriptionExtension<User>(subscribeToUser, {
+    policy: 'forever',
+    merge: (current, incoming) => Object.assign(current, incoming),
+});
+```
+
+### Writing a custom extension
+
+A read-through/write-through persistence extension, shaped like a typical retry-or-cache-backed API layer:
+
+```ts
+function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromiseCacheExtension<T, string> {
+    return {
+        overrideFetcher: original => async (key, refreshing) => {
+            if (!refreshing) {
+                const raw = storage.getItem(prefix + key);
+                if (raw != null) return JSON.parse(raw) as T;
+            }
+            return original(key, refreshing);
+        },
+        onStored: (key, value) => storage.setItem(prefix + key, JSON.stringify(value)),
+        onRemoved: key => storage.removeItem(prefix + key),
+        onCleared: () => { /* clear this prefix's keys */ },
+    };
+}
+```
+
+Retry logic follows the same shape: wrap `original` in `overrideFetcher` with your own attempt/backoff loop.
+
+## Typed Keys
+
+`PromiseCache<T, TKey>` lets `TKey` narrow to any subtype of `string` — a branded string or a template-literal type. The fetcher and every key-taking method are typed against `TKey`; `keys()` returns `TKey[]`.
+
+```ts
+import { PromiseCache } from '@zajno/common/structures/promiseCache';
+
+type UserKey = `user:${string}`;
+const userKey = (id: string): UserKey => `user:${id}`;
+
+const userCache = new PromiseCache<User, UserKey>(async (key) => fetchUser(key));
+
+await userCache.get(userKey('42'));
+userCache.get('42'); // compile error: `string` is not assignable to `UserKey`
+```
+
+This only narrows the key's *type* — the cache is still string-keyed at runtime. For structured (object) keys, use `KeyedPromiseCache` (below) or your app's own repository layer to translate ids to/from strings.
+
+## KeyedPromiseCache — Non-String Keys
+
+`PromiseCache`'s keys are strings (optionally narrowed via `TKey`, see [Typed Keys](#typed-keys)). For a non-string id type `K`, wrap it in `KeyedPromiseCache`, providing `toKey` (id → string) and, optionally, `fromKey` (string → id):
+
+```ts
+import { KeyedPromiseCache } from '@zajno/common/structures/promiseCache';
+
+// With fromKey — ids are recovered by parsing the string key directly.
+const cache = new KeyedPromiseCache<Product, number>(
+    (id) => fetchProduct(id),
+    (id) => id.toString(),      // toKey
+    { fromKey: (key) => Number(key) },
+);
+
+await cache.get(42);
+cache.keys(); // number[]
+```
+
+Without `fromKey`, `KeyedPromiseCache` keeps an internal id registry instead, populated the first time each id is passed to any of its methods:
+
+```ts
+const cache = new KeyedPromiseCache<Product, string>(
+    (id) => fetchProduct(id),
+    (id) => `product:${id}`,    // toKey only — no fromKey
+);
+
+await cache.get('p-1'); // registers 'product:p-1' → 'p-1'
+cache.keys();           // ['p-1']
+```
+
+In registry mode, memory grows with the number of distinct ids ever used to fetch or store — the registry is only emptied by `clear()`. A `getLazy()` handle obtained before a `clear()` needs its id passed to a public method again before it can resolve. For large or unbounded id spaces, prefer `fromKey` — it avoids the registry entirely.
+
+`KeyedPromiseCache` implements `IControllablePromiseCache<T, K, TInitial>` — the full contract translated to take `id: K`, with `keys()` returning ids. Anything beyond the contract — invalidation policy, `extend()`, logging — is reached via the `cache` getter, which works with the inner string keys:
+
+```ts
+cache.cache.useInvalidation({ expirationMs: 60_000 });
+cache.cache.keys(); // ['product:p-1']
+```
+
+Pass a `cacheFactory` to change the inner cache flavor, e.g. to get the `@zajno/common-mobx` observable variant:
+
+```ts
+import { PromiseCacheObservable } from '@zajno/common-mobx/structures/promiseCache';
+
+const cache = new KeyedPromiseCache<Product, number>(
+    (id) => fetchProduct(id),
+    (id) => id.toString(),
+    { cacheFactory: (fetcher) => new PromiseCacheObservable(fetcher) },
+);
+```
 
 ## Unified `ILazyPromise<T>` Interface
 
-`getLazy(key)` returns an `ILazyPromise<T>` — the same interface implemented by standalone `LazyPromise` instances. This means consumers can use a single interface regardless of whether the data comes from a single lazy value or a keyed cache:
+`getLazy(key)` returns an `ILazyPromise<T>` — the same interface implemented by standalone `LazyPromise` instances. Consumers can use a single interface regardless of whether the data comes from a single lazy value or a keyed cache:
 
 ```ts
 import type { ILazyPromise } from '@zajno/common/lazy';
@@ -233,41 +321,32 @@ const cache = new PromiseCache<User>(fetchUser);
 renderItem(cache.getLazy('user-42'));
 ```
 
-### `InvalidationCallback<T>`
+### `PromiseCacheLazyHandle` — for adapter authors
+
+`getLazy()` returns a `PromiseCacheLazyHandle<T, TInitial>` instance. Its getters are one-line delegations to the cache's public methods, with no state of its own — subclass it and override individual getters to build a custom adapter without reimplementing the rest:
 
 ```ts
-type InvalidationCallback<T> = (key: string, value: T | undefined, cachedAt: number) => boolean;
+import { PromiseCacheLazyHandle } from '@zajno/common/structures/promiseCache';
+
+class UpperCaseHandle extends PromiseCacheLazyHandle<string> {
+    get value() { return super.value?.toUpperCase(); }
+}
 ```
 
-### `ErrorCallback<K>`
+## Error Handling
 
-```ts
-type ErrorCallback<K> = (key: K, error: unknown) => void;
-```
+When a fetcher throws, the error is:
+1. Stored per-key (accessible via `getLastError(key)` or `getLazy(key).error`)
+2. Logged via the attached logger
+3. Forwarded to the `useOnError()` callback, if set
 
-## Extensibility
-
-`PromiseCacheCore` is designed for subclassing. The `pure_create*` factory methods allow replacing internal storage with observable variants:
-
-| Factory Method | Creates |
-|---|---|
-| `pure_createLoadingCount()` | `IValueModel<number>` for the loading counter |
-| `pure_createItemsCache()` | `IMapModel<string, T>` for resolved items |
-| `pure_createItemsStatus()` | `IMapModel<string, boolean>` for loading flags |
-| `pure_createFetchCache()` | `IMapModel<string, Promise>` for in-flight promises |
-| `pure_createErrorsMap()` | `IMapModel<string, unknown>` for errors |
-
-> ⚠️ These methods are called from the constructor and **must not** reference `this` or `super` — they must be pure/const functions.
-
-For example, the `@zajno/common-mobx` package provides `PromiseCacheObservable`, which overrides these factories with MobX observable maps and wraps mutations in MobX actions. The same pattern can be applied for Vue reactivity or any other system.
+The failed fetch resolves to the initial value for a first fetch, or to the stale cached value for a refresh (stale-while-revalidate). The error is cleared on the next successful store, and by `delete()`, `sanitize()`, and `clear()`.
 
 ## Concurrency & Version Safety
 
-When `clear()` is called while fetches are in-flight, the internal `_version` counter is incremented. Any fetch that started before the clear will still resolve its promise (so callers aren't left hanging), but the result is **not** stored into the cache. This prevents stale data from silently reappearing after a reset.
+When `clear()` is called while fetches are in-flight, the internal `_version` counter is incremented. A fetch that started before the clear still resolves its promise (so callers aren't left hanging), but the result is not stored. This prevents stale data from silently reappearing after a reset.
 
-### Refresh & "Latest Wins"
-
-`refresh(key)` re-fetches the value for a key without clearing the stale cached value. Multiple concurrent refreshes for the same key use "latest wins" semantics — all awaiting promises resolve to the value from the most recent refresh. This mirrors the behavior of `LazyPromise.refresh()`.
+`refresh(key)` re-fetches without clearing the stale cached value. Multiple concurrent refreshes for the same key use "latest wins" semantics — all awaiting promises resolve to the value from the most recent refresh.
 
 ```ts
 // Stale-while-revalidate pattern
