@@ -65,14 +65,14 @@ describe('KeyedPromiseCache', () => {
             expect(fetcher).toHaveBeenCalledTimes(2);
         });
 
-        test('a handle obtained before invalidate() stays usable and re-fetches', async () => {
+        test('a handle obtained before delete() stays usable and re-fetches', async () => {
             let counter = 0;
             const cache = new KeyedPromiseCache(async (id: number) => `value-${id}-${++counter}`, id => id.toString());
 
             const lazy = cache.getLazy(9);
             await expect(lazy.promise).resolves.toBe('value-9-1');
 
-            cache.invalidate(9);
+            cache.delete(9);
 
             await expect(lazy.promise).resolves.toBe('value-9-2');
         });
@@ -139,13 +139,13 @@ describe('KeyedPromiseCache', () => {
     });
 
     describe('registry lifetime', () => {
-        test('invalidate() keeps the registry entry, so the key still resolves back to its id', async () => {
+        test('delete() keeps the registry entry, so the key still resolves back to its id', async () => {
             const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
 
             await cache.get(3);
             expect(cache.keys()).toEqual([3]);
 
-            cache.invalidate(3);
+            expect(cache.delete(3)).toBe(true);
             expect(cache.cache.hasKey('3')).toBe(false); // inner cache cleared, bypassing the wrapper
 
             // The registry entry for '3' survives — re-populating the inner cache directly
@@ -154,19 +154,25 @@ describe('KeyedPromiseCache', () => {
             expect(cache.keys()).toEqual([3]);
         });
 
-        test('invalidate(id, \'silent\') forwards the mode to the inner cache and keeps the registry entry', async () => {
-            const onInvalidated = vi.fn();
+        test('delete(id) forwards to the inner cache, fires onRemoved, and keeps the registry entry', async () => {
+            const onRemoved = vi.fn();
             const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
-            cache.cache.extend({ onInvalidated });
+            cache.cache.extend({ onRemoved });
 
             await cache.get(4);
-            cache.invalidate(4, 'silent');
+            cache.delete(4);
 
-            expect(onInvalidated).not.toHaveBeenCalled();
+            expect(onRemoved).toHaveBeenCalledTimes(1);
             expect(cache.cache.hasKey('4')).toBe(false);
 
             cache.cache.set('4', 999);
             expect(cache.keys()).toEqual([4]);
+        });
+
+        test('delete() on an id with no cache state returns false', async () => {
+            const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
+
+            expect(cache.delete(5)).toBe(false);
         });
 
         test('clear() empties the registry', async () => {
@@ -180,6 +186,62 @@ describe('KeyedPromiseCache', () => {
 
             cache.cache.set('1', 111);
             expect(() => cache.keys()).toThrow(/no id registered/);
+        });
+    });
+
+    describe('initialValue', () => {
+        test('static initial value is returned before the first fetch resolves and on error', async () => {
+            let resolveFetch!: (v: string) => void;
+            let rejectFetch!: (err: unknown) => void;
+            const cache = new KeyedPromiseCache(
+                (id: number) => new Promise<string>((resolve, reject) => {
+                    if (id === 1) resolveFetch = resolve;
+                    else rejectFetch = reject;
+                }),
+                id => id.toString(),
+                { initialValue: 'loading' },
+            );
+
+            expect(cache.getCurrent(1)).toBe('loading');
+            resolveFetch('done');
+            await cache.get(1);
+            expect(cache.getCurrent(1, false)).toBe('done');
+
+            expect(cache.getCurrent(2)).toBe('loading');
+            rejectFetch(new Error('fail'));
+            await cache.get(2);
+            expect(cache.getCurrent(2, false)).toBe('loading');
+            expect(cache.getLastError(2)).toBeInstanceOf(Error);
+        });
+
+        test('a per-id initial value factory receives the original id', async () => {
+            let resolveFetch!: (v: string) => void;
+            const cache = new KeyedPromiseCache(
+                (_id: number) => new Promise<string>(resolve => { resolveFetch = resolve; }),
+                id => id.toString(),
+                { initialValue: (id: number) => `loading-${id}` },
+            );
+
+            expect(cache.getCurrent(7)).toBe('loading-7');
+            resolveFetch('done');
+            await cache.get(7);
+        });
+    });
+
+    describe('dispose', () => {
+        test('runs the inner cache\'s extension disposers and empties the registry', async () => {
+            const disposed = vi.fn();
+            const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
+            cache.cache.extend({ dispose: disposed });
+
+            await cache.get(1);
+            expect(cache.keys()).toEqual([1]);
+
+            cache.dispose();
+
+            expect(disposed).toHaveBeenCalledTimes(1);
+            expect(cache.keys()).toEqual([]);
+            expect(cache.cache.hasKey('1')).toBe(false);
         });
     });
 

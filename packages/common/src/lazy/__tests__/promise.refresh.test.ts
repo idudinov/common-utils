@@ -477,4 +477,83 @@ describe('LazyPromise refresh', () => {
         expect(lazy.error).toBeNull();
     });
 
+    // --- refresh() must not await a superseded fetch ---
+
+    test('refresh() resolves to the refreshed value while the initial factory never settles', async () => {
+        const lazy = new LazyPromise<number>(async (refreshing) => {
+            if (!refreshing) {
+                await new Promise<never>(() => { /* the initial factory never settles */ });
+            }
+            return 2;
+        });
+
+        const initialPromise = lazy.promise;
+        expect(lazy.isLoading).toBeTrue();
+
+        let refreshResolved = false;
+        const refreshPromise = lazy.refresh().then(v => {
+            refreshResolved = true;
+            return v;
+        });
+
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(lazy.currentValue).toBe(2);
+        expect(lazy.pendingState).toBeNull();
+        expect(refreshResolved).toBe(true);
+        await expect(refreshPromise).resolves.toBe(2);
+
+        // the reference captured before the refresh is still pinned to the hung initial chain
+        let initialSettled = false;
+        void initialPromise.then(() => { initialSettled = true; });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(initialSettled).toBe(false);
+    });
+
+    test('concurrent refresh() calls each resolve to the latest value while the initial factory hangs', async () => {
+        let refreshCount = 0;
+        const lazy = new LazyPromise<number>(async (refreshing) => {
+            if (!refreshing) {
+                await new Promise<never>(() => { /* the initial factory never settles */ });
+            }
+            refreshCount++;
+            const myCount = refreshCount;
+            await new Promise(r => setTimeout(r, myCount * 10));
+            return myCount;
+        });
+
+        void lazy.promise; // initial load starts and hangs forever
+
+        const refresh1 = lazy.refresh();
+        const refresh2 = lazy.refresh();
+        const refresh3 = lazy.refresh();
+
+        await vi.advanceTimersByTimeAsync(30);
+
+        const [r1, r2, r3] = await Promise.all([refresh1, refresh2, refresh3]);
+        expect(r1).toBe(3);
+        expect(r2).toBe(3);
+        expect(r3).toBe(3);
+        expect(lazy.value).toBe(3);
+    });
+
+    test('a fresh .promise read after such a refresh resolves to the fresh value', async () => {
+        const lazy = new LazyPromise<number>(async (refreshing) => {
+            if (!refreshing) {
+                await new Promise<never>(() => { /* the initial factory never settles */ });
+            }
+            return 2;
+        });
+
+        void lazy.promise; // initial load hangs
+        await lazy.refresh();
+
+        let resolved = false;
+        void lazy.promise.then(() => { resolved = true; });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(lazy.currentValue).toBe(2);
+        expect(resolved).toBe(true); // .promise read after refresh() settled resolves to the refreshed value
+    });
+
 });

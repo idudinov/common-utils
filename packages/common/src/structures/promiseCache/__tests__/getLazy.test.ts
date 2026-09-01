@@ -147,7 +147,7 @@ describe('PromiseCache getLazy', () => {
             await cache.get('a');
             expect(cache.cachedCount).toBe(2);
 
-            cache.invalidate('a');
+            cache.delete('a');
             expect(cache.cachedCount).toBe(1);
 
             cache.clear();

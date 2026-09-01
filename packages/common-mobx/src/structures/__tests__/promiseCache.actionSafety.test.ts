@@ -114,7 +114,7 @@ describe('PromiseCache observable — enforceActions: always', () => {
         disposer.dispose();
     });
 
-    it('sanitize() and invalidate(key, \'silent\') run warn/error-free', async () => {
+    it('sanitize() and invalidate(key) run warn/error-free', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -131,8 +131,34 @@ describe('PromiseCache observable — enforceActions: always', () => {
         expect(cache.sanitize()).toBe(1);
 
         await cache.get('b');
-        cache.invalidate('b', 'silent');
+        cache.invalidate('b');
         expect(cache.hasKey('b')).toBe(false);
+
+        disposer.dispose();
+
+        expect(warnSpy).not.toHaveBeenCalled();
+        expect(errorSpy).not.toHaveBeenCalled();
+
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
+    it('a fetch-triggering read inside autorun — getCurrent(key) and getLazy(key).value — runs warn/error-free', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        const cache = new PromiseCacheObservable<number>(
+            async () => {
+                await new Promise<void>(resolve => setTimeout(resolve, 10));
+                return 1;
+            },
+        );
+
+        const disposer = new Disposer();
+        disposer.add(autorun(() => { void cache.getCurrent('a'); }));
+        disposer.add(autorun(() => { void cache.getLazy('b').value; }));
+
+        await vi.advanceTimersByTimeAsync(10);
 
         disposer.dispose();
 

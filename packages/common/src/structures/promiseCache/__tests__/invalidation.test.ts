@@ -117,7 +117,7 @@ describe('PromiseCache invalidation', () => {
             expect(cache.getIsValid('a')).toBe(false);
 
             threshold = Date.now() - 100;
-            cache.invalidate('a');
+            cache.delete('a');
             await cache.get('a');
             expect(cache.getIsValid('a')).toBe(true);
         });
@@ -216,9 +216,35 @@ describe('PromiseCache invalidation', () => {
             expect(cache.hasKey('a')).toBe(false);
             expect(cache.hasKey('c')).toBe(false);
         });
+
+        test('does not announce removal of a key an earlier onRemoved handler re-added', async () => {
+            const removed: string[] = [];
+
+            const cache = new PromiseCache<string>(
+                async id => id,
+            ).useInvalidation({ expirationMs: 50 });
+
+            cache.onRemoved.on(({ key }) => {
+                removed.push(key);
+                if (key === 'a') {
+                    cache.set('b', 'revived'); // re-adds a key sanitize also purged, before its own onRemoved fires
+                }
+            });
+
+            await cache.get('a');
+            await cache.get('b');
+            await vi.advanceTimersByTimeAsync(60);
+
+            // 'b' is purged along with 'a', but re-added before its own onRemoved turn comes up —
+            // announced count reflects that, not the raw purge count.
+            expect(cache.sanitize()).toBe(1);
+
+            expect(removed).toEqual(['a']);
+            expect(cache.hasKey('b')).toBe(true);
+        });
     });
 
-    describe('invalidate() during in-flight fetch', () => {
+    describe('delete() during in-flight fetch', () => {
         test('subsequent get() must start a new fetch', async () => {
             const fetcher = vi.fn(async (id: string) => {
                 return delayedValue(100, `value-${id}`);
@@ -230,11 +256,11 @@ describe('PromiseCache invalidation', () => {
             const p1 = cache.get('1');
             expect(cache.getIsLoading('1')).toBe(true);
 
-            // Invalidate while fetch is in-flight
+            // Delete while fetch is in-flight
             await vi.advanceTimersByTimeAsync(30);
-            cache.invalidate('1');
+            cache.delete('1');
 
-            // After invalidate, the key should look like it was never fetched
+            // After delete, the key should look like it was never fetched
             expect(cache.getIsLoading('1')).toBeNull();
 
             // Let the original fetch complete
@@ -242,7 +268,7 @@ describe('PromiseCache invalidation', () => {
             await p1;
 
             // After the stale fetch completes, the key must still be "never fetched"
-            // — invalidate()'s contract: "like it was never fetched/accessed"
+            // — delete()'s contract: "like it was never fetched/accessed"
             expect(cache.loadingCount).toBe(0);
             expect(cache.getIsLoading('1')).toBeNull();
 
@@ -260,7 +286,7 @@ describe('PromiseCache invalidation', () => {
             expect(cache.loadingCount).toBe(0);
         });
 
-        test('failing in-flight fetch after invalidate() does not leave stale error', async () => {
+        test('failing in-flight fetch after delete() does not leave stale error', async () => {
             const fetcher = vi.fn(async (_id: string): Promise<string> => {
                 await delayedValue(100, undefined);
                 throw new Error('fetch failed');
@@ -271,13 +297,13 @@ describe('PromiseCache invalidation', () => {
             const p1 = cache.get('1');
 
             await vi.advanceTimersByTimeAsync(30);
-            cache.invalidate('1');
+            cache.delete('1');
 
             // Let the failing fetch complete
             await vi.advanceTimersByTimeAsync(100);
             await p1;
 
-            // invalidate()'s contract: no trace of the key
+            // delete()'s contract: no trace of the key
             expect(cache.getLastError('1')).toBeNull();
             expect(cache.getIsLoading('1')).toBeNull();
             expect(cache.loadingCount).toBe(0);

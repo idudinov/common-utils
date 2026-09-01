@@ -30,29 +30,67 @@ describe('PromiseCache events', () => {
         expect(onStored).toHaveBeenCalledTimes(2);
     });
 
-    test('onInvalidated fires only for notify invalidation, never for silent, sanitize(), or clear()', async () => {
-        const onInvalidated = vi.fn();
+    test('onRemoved fires for delete() and sanitize(), never for clear()', async () => {
+        const onRemoved = vi.fn();
 
         const cache = new PromiseCache<string>(async key => key).useInvalidation({ expirationMs: 10 });
-        cache.onInvalidated.on(onInvalidated);
-
-        await cache.get('a');
-        cache.invalidate('a', 'silent');
-        expect(onInvalidated).not.toHaveBeenCalled();
+        cache.onRemoved.on(onRemoved);
 
         await cache.get('b');
         await vi.advanceTimersByTimeAsync(20);
         cache.sanitize();
-        expect(onInvalidated).not.toHaveBeenCalled();
+        expect(onRemoved).toHaveBeenCalledTimes(1);
+        expect(onRemoved).toHaveBeenCalledWith({ key: 'b' });
 
         await cache.get('c');
         cache.clear();
-        expect(onInvalidated).not.toHaveBeenCalled();
+        expect(onRemoved).toHaveBeenCalledTimes(1);
 
         await cache.get('d');
-        cache.invalidate('d');
-        expect(onInvalidated).toHaveBeenCalledTimes(1);
-        expect(onInvalidated).toHaveBeenCalledWith({ key: 'd' });
+        expect(cache.delete('d')).toBe(true);
+        expect(onRemoved).toHaveBeenCalledTimes(2);
+        expect(onRemoved).toHaveBeenCalledWith({ key: 'd' });
+    });
+
+    test('delete() on an unknown key fires no onRemoved and returns false', () => {
+        const onRemoved = vi.fn();
+
+        const cache = new PromiseCache<string>(async key => key);
+        cache.onRemoved.on(onRemoved);
+
+        expect(cache.delete('never-fetched')).toBe(false);
+
+        expect(onRemoved).not.toHaveBeenCalled();
+    });
+
+    test('delete() on a key holding only a stored error still fires onRemoved', async () => {
+        const onRemoved = vi.fn();
+
+        const cache = new PromiseCache<string>(async () => { throw new Error('fail'); });
+        cache.onRemoved.on(onRemoved);
+
+        await cache.get('a');
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+        expect(cache.getHasValue('a')).toBe(false); // never stored a value, only an error
+
+        expect(cache.delete('a')).toBe(true);
+
+        expect(onRemoved).toHaveBeenCalledTimes(1);
+        expect(onRemoved).toHaveBeenCalledWith({ key: 'a' });
+    });
+
+    test('invalidate() still delegates to delete() — same removal and onRemoved event', async () => {
+        const onRemoved = vi.fn();
+
+        const cache = new PromiseCache<string>(async key => key);
+        cache.onRemoved.on(onRemoved);
+
+        await cache.get('a');
+        cache.invalidate('a');
+
+        expect(onRemoved).toHaveBeenCalledTimes(1);
+        expect(onRemoved).toHaveBeenCalledWith({ key: 'a' });
+        expect(cache.hasKey('a')).toBe(false);
     });
 
     test('onCleared fires on clear(), and also during dispose() (disposers run first, then clear())', async () => {

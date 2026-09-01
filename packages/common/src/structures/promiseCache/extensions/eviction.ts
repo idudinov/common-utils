@@ -4,7 +4,6 @@ import type { IPromiseCacheExtension } from './types.js';
 /**
  * Caps the cache at `maxItems`, evicting on every store: invalid entries first, then the oldest
  * by insertion order. In-flight keys and the key that was just stored are never evicted.
- * Eviction removes via `invalidate(key, 'silent')`, so other extensions' `onInvalidated` do not fire for it.
  */
 export function createEvictionExtension<T, TKey extends string = string>(
     config: { maxItems: number },
@@ -40,20 +39,18 @@ export function createEvictionExtension<T, TKey extends string = string>(
             order.delete(key);
             order.add(key);
 
-            let count = 0;
-            for (const _key of target.keys(true)) count++;
-
-            while (count > config.maxItems) {
+            while (target.cachedCount > config.maxItems) {
                 const candidate = findInvalidCandidate(target, key) ?? findOldestCandidate(target, key);
                 if (candidate === undefined) break;
 
+                // Delete from `order` before `delete()`: `delete()` only fires `onRemoved` for a key
+                // that still has cache state, so a candidate with none would otherwise leave `order`
+                // unchanged and spin this loop forever.
                 order.delete(candidate);
-                const existed = target.hasKey(candidate);
-                target.invalidate(candidate, 'silent');
-                if (existed) count--;
+                target.delete(candidate);
             }
         },
-        onInvalidated: key => {
+        onRemoved: key => {
             order.delete(key);
         },
         onCleared: () => {

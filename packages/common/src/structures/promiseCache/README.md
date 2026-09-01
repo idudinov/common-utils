@@ -6,12 +6,12 @@ A key-value cache for async data that goes well beyond a simple `Map<string, Pro
 - **Synchronous access** — `getCurrent()` returns the resolved value instantly; `getLazy()` gives a reactive `ILazyPromise<T>` handle
 - **Per-key error tracking** — fetch failures are stored, logged, and forwarded to an optional callback
 - **Stale-while-revalidate** — invalidated items remain readable; `refresh(key)` re-fetches without clearing the stale value
-- **Invalidation** — time-based TTL, custom callback, or both; `notify`/`silent` modes for internal vs. observable removal
+- **Invalidation** — time-based TTL, custom callback, or both; `onRemoved` fires for every per-key removal
 - **Safe `clear()`** — a version counter prevents stale in-flight fetches from silently re-populating the cache
 - **Composable storage** — a `storage` provider supplies the observable primitives, so MobX, Vue, or any other reactivity system plugs in without subclassing
-- **Extensible** — `extend()` wraps the fetcher, augments the instance shape, and hooks into store/invalidate/clear, mirroring `LazyPromise.extend`; batching and eviction ship as extensions
+- **Extensible** — `extend()` wraps the fetcher, augments the instance shape, and hooks into store/delete/clear, mirroring `LazyPromise.extend`; batching and eviction ship as extensions
 
-This README covers concepts and usage. The reference for individual members is the docstrings in the source, primarily [`types.ts`](types.ts) and [`extensions.ts`](extensions.ts).
+This README covers concepts and usage. The reference for individual members is the docstrings in the source, primarily [`types.ts`](types.ts) and [`extensions/`](extensions/).
 
 ## Quick Start
 
@@ -52,7 +52,7 @@ await typedLazy.promise; // Promise<User>
 [`types.ts`](types.ts) defines two interfaces, mirroring `ILazyPromise` / `IControllableLazyPromise` at the collection level:
 
 - `IPromiseCache<T, TKey, TInitial>` — consumption. Reading via `get`/`getLazy`/`getCurrent` may trigger a fetch; every other member is passive.
-- `IControllablePromiseCache<T, TKey, TInitial>` — adds manipulation: `set`, `invalidate`, `clear`.
+- `IControllablePromiseCache<T, TKey, TInitial>` — adds manipulation: `set`, `delete`, `clear`.
 
 `PromiseCache` implements the controllable one; code that only reads should depend on `IPromiseCache`.
 
@@ -100,6 +100,8 @@ cache.useInvalidation({ get expirationMs() { return ttl; } });
 | `'revalidating'` | stale value, passive `get()`/`.value` on expiry | `false` |
 | `'refreshing'` | stale value, explicit `refresh()` | `false` |
 
+> A retry after a failed refresh reports `isLoading === false` by default — kind `'refreshing'`, stale value present, error set — since the trigger is a retry, not a first load. Pass `{ refreshing: true }` to `useLoadingState`, or read `getPendingState`/`pendingState` directly, to show a spinner during that retry too. That's for an explicit `refresh()` retry only — a passive `get()`-driven retry of an expired entry reports kind `'revalidating'` instead; pass `{ revalidating: true }` for that path.
+
 ### Logging
 
 Inherited from `Loggable`: `cache.setLoggerFactory(createLogger, 'UserCache')`, or `cache.setLogger(myLoggerInstance)`.
@@ -110,14 +112,11 @@ Inherited from `Loggable`: `cache.setLoggerFactory(createLogger, 'UserCache')`, 
 
 Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sanitize()` sweeps them out and returns the removed count.
 
-`invalidate(key, mode?)` has two modes:
-
-- `'notify'` (default) — fires `onInvalidated`.
-- `'silent'` — internal housekeeping (e.g. eviction) that observers should not react to; never fires `onInvalidated`.
-
-`onInvalidated` fires only for `'notify'` invalidation. It never fires for `'silent'` invalidation, and therefore never for evictions — the eviction extension below invalidates silently. `sanitize()` and `clear()` don't fire it either; `clear()` has its own event (`onCleared`).
+`delete(key)` removes all per-key state; the next read refetches. `onRemoved` fires for every per-key removal — `delete()` (including extension-driven ones such as eviction) and `sanitize()`. It does not fire for `clear()`, which has its own event (`onCleared`). `invalidate(key)` is a deprecated alias for `delete(key)`.
 
 Max-items eviction is not core — see `createEvictionExtension` below.
+
+> A read of an expired value whose revalidation keeps failing retries on every read (the entry never becomes valid again on its own). Throttle at the call site, or use `invalidationCheck` to hold the value valid despite the failure. A failed *first* fetch — no value was ever stored — has no TTL to expire from: the error is sticky until `refresh(key)` or `delete(key)` retries it.
 
 ### What's core vs. an extension
 
@@ -133,14 +132,14 @@ const cache = new PromiseCache<User>(fetchUser)
     .extend(createEvictionExtension({ maxItems: 500 }));
 ```
 
-An `IPromiseCacheExtension<T, TKey, TExtShape>` can wrap the fetcher (`overrideFetcher`), add properties or methods to the instance (`extendShape`), hook into the lifecycle (`onStored`, `onInvalidated`, `onCleared`), and release resources (`dispose`) — each hook is documented in [`extensions.ts`](extensions.ts). Hook exceptions are caught and logged; they never break the cache operation or other hooks.
+An `IPromiseCacheExtension<T, TKey, TExtShape>` can wrap the fetcher (`overrideFetcher`), add properties or methods to the instance (`extendShape`), hook into the lifecycle (`onStored`, `onRemoved`, `onCleared`), and release resources (`dispose`) — each hook is documented in [`extensions/types.ts`](extensions/types.ts). Hook exceptions are caught and logged; they never break the cache operation or other hooks.
 
 ### Events
 
 The lifecycle is also observable without `extend()`, via three `IEvent`s (`@zajno/common/observing/event`; `.on(handler)` returns the unsubscribe):
 
 - `onStored` — `{ key, value }`; every successful store (fetch result or `set()`), with the prepared value.
-- `onInvalidated` — `{ key }`; `'notify'` invalidations only.
+- `onRemoved` — `{ key }`; every per-key removal — `delete()` and `sanitize()`.
 - `onCleared` — no payload; `clear()`, including the one `dispose()` runs.
 
 Extension hooks subscribe to these same events, so dispatch order is `extend()`/`.on()` call order.
@@ -185,19 +184,28 @@ Adapts a live source — `(key, emit) => DisposeFunction | Promise<DisposeFuncti
 ```ts
 import { createSubscriptionExtension } from '@zajno/common/structures/promiseCache';
 
-const live = createSubscriptionExtension<User>(subscribeToUser, 'forever');
+const live = createSubscriptionExtension<User>(subscribeToUser, { policy: 'forever' });
 const users = new PromiseCache<User>(live.fetch).extend(live);
 ```
 
-`policy` (default `'forever'`) sets the subscription's lifetime after the first emission:
+`policy` (default `'forever'`) sets the subscription's lifetime after the first emission — a static value, or `(key) => SubscriptionPolicy` resolved once per `fetch()` call:
 
 - `'off'` — unsubscribe right away: a one-shot fetch.
-- `'forever'` — keep it until `invalidate`/`clear`/`dispose`.
-- `{ ttlMs }` — keep it for `ttlMs` since the last emission, then unsubscribe and invalidate the key, so the next read re-subscribes. `SHORT_SUBSCRIPTION_TTL_MS` is a ready-made 5 minutes.
+- `'forever'` — keep it until the key is removed — `delete()` (including eviction, which deletes keys over the limit), `clear()`, or `dispose()`.
+- `{ ttlMs }` — keep it for `ttlMs` since the last emission, then unsubscribe and delete the key, so the next read re-subscribes. `SHORT_SUBSCRIPTION_TTL_MS` is a ready-made 5 minutes.
 
-It replaces the cache's fetcher instead of wrapping it and owns that cache's subscriptions, so create one instance per cache and apply it before the first fetch — `fetch` on its own rejects.
+It replaces the cache's fetcher instead of wrapping it and owns that cache's subscriptions, so create one instance per cache and apply it before the first fetch — `fetch` on its own rejects. Dispose it via the cache's `dispose()`, not the extension's own `dispose()` directly — the cache's `dispose()` already runs it.
 
-To merge an emission into the current value instead of replacing it, wrap `emit` and merge against `cache.getCurrent(key, false)`, or use `prepareValue`.
+On a live-subscribed key, a source emission always wins over a concurrent consumer `set()` — the source is authoritative for subscribed data. A `set()` while the first fetch is pending cancels that fetch, so the source's first emission is discarded; emissions after it apply normally.
+
+`merge?: (current: T, incoming: T) => T` folds an update emission into the current value instead of replacing it wholesale — useful with `PromiseCacheObservable.useObserveItems(true)`, where replacing the value would otherwise re-render every field's observers:
+
+```ts
+const live = createSubscriptionExtension<User>(subscribeToUser, {
+    policy: 'forever',
+    merge: (current, incoming) => Object.assign(current, incoming),
+});
+```
 
 ### Writing a custom extension
 
@@ -214,7 +222,7 @@ function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromi
             return original(key, refreshing);
         },
         onStored: (key, value) => storage.setItem(prefix + key, JSON.stringify(value)),
-        onInvalidated: key => storage.removeItem(prefix + key),
+        onRemoved: key => storage.removeItem(prefix + key),
         onCleared: () => { /* clear this prefix's keys */ },
     };
 }
@@ -332,7 +340,7 @@ When a fetcher throws, the error is:
 2. Logged via the attached logger
 3. Forwarded to the `useOnError()` callback, if set
 
-The failed fetch resolves to the initial value for a first fetch, or to the stale cached value for a refresh (stale-while-revalidate). The error is cleared on the next successful store, and by `invalidate()`, `sanitize()`, and `clear()`.
+The failed fetch resolves to the initial value for a first fetch, or to the stale cached value for a refresh (stale-while-revalidate). The error is cleared on the next successful store, and by `delete()`, `sanitize()`, and `clear()`.
 
 ## Concurrency & Version Safety
 

@@ -88,6 +88,8 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     /**
      * Returns true if a value of type `T` has been successfully loaded (no error).
      * Stays `true` while a refresh/revalidation is in flight; use {@link isLoading} to hide stale values.
+     * Exception: a failed-then-retried load clears this to `false` for the retry's duration too, since the
+     * stored error takes precedence over the kept stale value.
      */
     public get hasValue() {
         return this._settled.value === 'resolved' && this._error.value == null;
@@ -209,11 +211,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      */
     public async refresh(): Promise<T | TInitial> {
         const nextState = this.refreshTargetState();
-        this.startLoading(true);
+        const factoryPromise = this.startLoading(true);
 
         this.applyPending(nextState);
 
-        return this._promise!;
+        return factoryPromise;
     }
 
     /**
@@ -261,7 +263,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         // need to dispose abandoned value
         if (p && !wasDisposed) {
             p.then(value => {
-                tryDispose(value);
+                // this promise's abandoned branch can resolve to whatever is live by the time it settles
+                // (e.g. a value set by a load that started after this reset) — never dispose that one
+                if (value !== this._instance.value) {
+                    tryDispose(value);
+                }
             });
         }
     }
@@ -292,10 +298,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         }
     }
 
-    private startLoading(refreshing: boolean) {
+    /** Starts (or joins) a factory call; returns the promise for this call's outcome — resolves to the instance value and never rejects. */
+    private startLoading(refreshing: boolean): Promise<T | TInitial> {
         if (!refreshing && this._activeFactoryPromise) {
             // Case when refreshing already is happening - we have an active promise
-            return;
+            return this._activeFactoryPromise;
         }
 
         let factoryResult: Promise<T> | T;
@@ -343,6 +350,8 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         if (!this._promise || !hadActive) {
             this._promise = factoryPromise;
         }
+
+        return factoryPromise;
     }
 
     protected onRejected(e: unknown): T | TInitial {

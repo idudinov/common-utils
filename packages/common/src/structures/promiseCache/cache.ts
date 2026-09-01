@@ -12,7 +12,7 @@ import { applyExtensionShape } from '../extension.js';
 import type { IPromiseCacheExtension } from './extensions/index.js';
 import { isInvalidated } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
-import type { ErrorCallback, IControllablePromiseCache, InvalidationConfig, InvalidationMode, PromiseCacheFetcher, PromiseCacheOptions, PromiseCacheStorageProvider } from './types.js';
+import type { ErrorCallback, IControllablePromiseCache, InvalidationConfig, PromiseCacheFetcher, PromiseCacheOptions, PromiseCacheStorageProvider } from './types.js';
 
 /** Default storage provider: plain `Map`s and a `Model` box. */
 const defaultStorageProvider: PromiseCacheStorageProvider = {
@@ -67,7 +67,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     private _fetcher: PromiseCacheFetcher<T, TKey>;
 
     private readonly _onStored = new Event<{ key: TKey; value: T }>();
-    private readonly _onInvalidated = new Event<{ key: TKey }>();
+    private readonly _onRemoved = new Event<{ key: TKey }>();
     private readonly _onCleared = new Event<void>();
     private _ownDisposer: (() => void) | undefined;
 
@@ -160,8 +160,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Fires after every successful store — fetch result and manual `set()` — with the stored (prepared) value. */
     public get onStored(): IEvent<{ key: TKey; value: T }> { return this._onStored.expose(); }
 
-    /** Fires for `'notify'` invalidations only; never for `'silent'` ones, `sanitize()`, or `clear()`. */
-    public get onInvalidated(): IEvent<{ key: TKey }> { return this._onInvalidated.expose(); }
+    /** Fires for every per-key removal: `delete()` and `sanitize()`. Not for `clear()`. */
+    public get onRemoved(): IEvent<{ key: TKey }> { return this._onRemoved.expose(); }
 
     /** Fires after `clear()` resets the cache. */
     public get onCleared(): IEvent<void> { return this._onCleared.expose(); }
@@ -196,9 +196,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._onStored.on(p => hook(p.key, p.value, extended));
         }
 
-        if (extension.onInvalidated) {
-            const hook = extension.onInvalidated;
-            this._onInvalidated.on(p => hook(p.key, extended));
+        if (extension.onRemoved) {
+            const hook = extension.onRemoved;
+            this._onRemoved.on(p => hook(p.key, extended));
         }
 
         if (extension.onCleared) {
@@ -253,11 +253,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return `[PromiseCache:${name || '?'}]`;
     }
 
-    /** Forwards the resolved logger to the {@link onStored}, {@link onInvalidated}, and {@link onCleared} events, so their handler failures log through it too. */
+    /** Forwards the resolved logger to the {@link onStored}, {@link onRemoved}, and {@link onCleared} events, so their handler failures log through it too. */
     override setLogger(logger: Getter<Nullable<ILogger>>): this {
         super.setLogger(logger);
         this._onStored.setLogger(this.logger);
-        this._onInvalidated.setLogger(this.logger);
+        this._onRemoved.setLogger(this.logger);
         this._onCleared.setLogger(this.logger);
         return this;
     }
@@ -324,7 +324,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         }
 
         // If a fetch is in progress or already completed (with error) and not invalidated,
-        // don't start a new fetch — error is "sticky". Use refresh() or invalidate() to retry.
+        // don't start a new fetch — error is "sticky". Use refresh() or delete() to retry.
         if (this._itemsStatus.has(key) && !isInvalidated) {
             const status = this._itemsStatus.get(key);
             this.logger.log(key, 'get: fetch already', status ? 'in progress' : 'completed (error)', '— returning initial value');
@@ -371,14 +371,23 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     // --- Public API: mutation ---
 
-    invalidate(key: TKey, mode: InvalidationMode = 'notify') {
+    delete(key: TKey): boolean {
+        const hadState = this._hasAnyKeyState(key);
+
         this._transaction(() => {
             this._purgeKey(key);
         });
 
-        if (mode === 'notify') {
-            this._onInvalidated.trigger({ key });
+        if (hadState) {
+            this._onRemoved.trigger({ key });
         }
+
+        return hadState;
+    }
+
+    /** @deprecated Use {@link delete}. */
+    invalidate(key: TKey) {
+        this.delete(key);
     }
 
     set(key: TKey, value: T) {
@@ -401,23 +410,38 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Iterates over all cached items and removes those that are invalid (expired).
      *
-     * @returns The number of items that were removed.
+     * @returns The number of keys announced as removed. A key re-added by its own `onRemoved`
+     * handler is still counted — the presence check runs before that handler fires. Only a key
+     * re-added by an earlier key's handler in the same pass, before its own announcement turn, is
+     * left uncounted.
      */
     sanitize(): number {
-        const keysToRemove: string[] = [];
+        const keysToRemove: TKey[] = [];
 
         for (const key of this._itemsCache.keys()) {
             if (this.getIsInvalidated(key)) {
-                keysToRemove.push(key);
+                keysToRemove.push(key as TKey);
             }
         }
 
-        return this._transaction(() => {
+        this._transaction(() => {
             for (const key of keysToRemove) {
                 this._purgeKey(key);
             }
-            return keysToRemove.length;
         });
+
+        let announced = 0;
+        for (const key of keysToRemove) {
+            // An earlier handler in this same loop may have re-added the key (e.g. set() inside
+            // onRemoved) — it is live again and must not be announced as removed.
+            if (this.hasKey(key)) {
+                continue;
+            }
+            this._onRemoved.trigger({ key });
+            announced++;
+        }
+
+        return announced;
     }
 
     clear() {
@@ -469,6 +493,16 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this._itemsCache.delete(key);
     }
 
+    /** Whether any per-key map still holds state for `key` — used to decide if a removal is real. */
+    private _hasAnyKeyState(key: TKey): boolean {
+        return this._itemsCache.has(key)
+            || this._fetchCache.has(key)
+            || this._itemsStatus.has(key)
+            || this._errorsMap.has(key)
+            || this._timestamps.has(key)
+            || this._activeFetchPromises.has(key);
+    }
+
     /** Removes every per-key entry, across all maps. */
     protected _purgeKey(key: string) {
         this._deleteKey(key);
@@ -512,7 +546,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this._loadingCount.value = this._loadingCount.value - 1;
     }
 
-    /** Hooks into cancelled fetch cleanup (set()/invalidate() called mid-flight). Only decrements loading count — per-key cleanup is the responsibility of the mutation that cancelled the fetch. */
+    /** Hooks into cancelled fetch cleanup (set()/delete() called mid-flight). Only decrements loading count — per-key cleanup is the responsibility of the mutation that cancelled the fetch. */
     protected onFetchCancelled(_key: string) {
         this._loadingCount.value = this._loadingCount.value - 1;
     }
@@ -590,7 +624,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                     : this._getCachedOrInitial(key);
             }
 
-            // Active promise removed by set()/invalidate() — the mutation already
+            // Active promise removed by set()/delete() — the mutation already
             // cleaned up per-key bookkeeping; only the loading count needs decrementing.
             this._transaction(() => this.onFetchCancelled(key));
             return this._getCachedOrInitial(key);
@@ -610,12 +644,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return res;
         }
 
-        // Fetch failed — record the error and a timestamp for time-based invalidation expiry,
-        // then return stale value or initial.
+        // Fetch failed — record the error, then return stale value or initial. An expired value
+        // whose refresh fails stays expired, so the next get() retries.
         this._transaction(() => {
             this._activeFetchPromises.delete(key);
             this._handleError(key, fetchResult.error);
-            this._timestamps.set(key, Date.now());
             this.onFetchComplete(key);
         });
         return this._getCachedOrInitial(key);

@@ -71,19 +71,27 @@ describe('PromiseCache extensions', () => {
         expect(onStored).toHaveBeenCalledTimes(2);
     });
 
-    test('onInvalidated fires for default invalidate() and not for invalidate(key, \'silent\')', async () => {
-        const onInvalidated = vi.fn();
+    test('onRemoved fires for delete() and sanitize(), not for clear()', async () => {
+        const onRemoved = vi.fn();
 
-        const cache = new PromiseCache<string>(async key => key).extend({ onInvalidated });
+        const cache = new PromiseCache<string>(async key => key)
+            .useInvalidation({ expirationMs: 10 })
+            .extend({ onRemoved });
 
         await cache.get('a');
-        cache.invalidate('a', 'silent');
-        expect(onInvalidated).not.toHaveBeenCalled();
+        cache.delete('a');
+        expect(onRemoved).toHaveBeenCalledTimes(1);
+        expect(onRemoved).toHaveBeenCalledWith('a', cache);
 
         await cache.get('b');
-        cache.invalidate('b');
-        expect(onInvalidated).toHaveBeenCalledTimes(1);
-        expect(onInvalidated).toHaveBeenCalledWith('b', cache);
+        await vi.advanceTimersByTimeAsync(20);
+        cache.sanitize();
+        expect(onRemoved).toHaveBeenCalledTimes(2);
+        expect(onRemoved).toHaveBeenCalledWith('b', cache);
+
+        await cache.get('c');
+        cache.clear();
+        expect(onRemoved).toHaveBeenCalledTimes(2);
     });
 
     test('onCleared fires on clear()', async () => {

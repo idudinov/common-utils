@@ -187,7 +187,7 @@ describe('PromiseCache eviction extension', () => {
         expect(cache.hasKey('c')).toBe(true);
     });
 
-    test('invalidate + re-fetch updates eviction order', async () => {
+    test('delete + re-fetch updates eviction order', async () => {
         const cache = new PromiseCache<string>(
             async id => delayedValue(5, id),
         ).extend(createEvictionExtension({ maxItems: 3 }));
@@ -205,8 +205,8 @@ describe('PromiseCache eviction extension', () => {
         await vi.advanceTimersByTimeAsync(5);
         await p;
 
-        // Invalidate 'a' and re-fetch it — now 'a' should be newest
-        cache.invalidate('a');
+        // Delete 'a' and re-fetch it — now 'a' should be newest
+        cache.delete('a');
         p = cache.get('a');
         await vi.advanceTimersByTimeAsync(5);
         await p;
@@ -371,8 +371,8 @@ describe('PromiseCache eviction extension', () => {
         await vi.advanceTimersByTimeAsync(5);
         await p;
 
-        // Removed silently, so the extension's `order` still holds 'a' as a ghost entry.
-        cache.invalidate('a', 'silent');
+        // Removed directly, bypassing eviction's own bookkeeping call — order still syncs via onRemoved.
+        cache.delete('a');
 
         p = cache.get('c');
         await vi.advanceTimersByTimeAsync(5);
@@ -386,31 +386,95 @@ describe('PromiseCache eviction extension', () => {
         expect(cache.keys().sort()).toEqual(['c', 'd']);
     });
 
-    test('onInvalidated of another extension does not fire on eviction, but does on a direct invalidate()', async () => {
-        const onInvalidated = vi.fn();
+    test('onRemoved of another extension fires on eviction and on a direct delete()', async () => {
+        const onRemoved = vi.fn();
 
         const cache = new PromiseCache<string>(
             async id => delayedValue(5, id),
         )
-            .extend({ onInvalidated })
+            .extend({ onRemoved })
             .extend(createEvictionExtension({ maxItems: 1 }));
 
         let p = cache.get('a');
         await vi.advanceTimersByTimeAsync(5);
         await p;
 
-        // Evicted by the next store — the other extension's onInvalidated must stay silent
+        // Evicted by the next store — the other extension's onRemoved fires for it too
         p = cache.get('b');
         await vi.advanceTimersByTimeAsync(5);
         await p;
 
         expect(cache.hasKey('a')).toBe(false);
         expect(cache.hasKey('b')).toBe(true);
-        expect(onInvalidated).not.toHaveBeenCalled();
+        expect(onRemoved).toHaveBeenCalledTimes(1);
+        expect(onRemoved).toHaveBeenCalledWith('a', cache);
 
-        // A direct, default-mode invalidate() still notifies
-        cache.invalidate('b');
-        expect(onInvalidated).toHaveBeenCalledTimes(1);
-        expect(onInvalidated).toHaveBeenCalledWith('b', cache);
+        // A direct delete() still notifies
+        cache.delete('b');
+        expect(onRemoved).toHaveBeenCalledTimes(2);
+        expect(onRemoved).toHaveBeenCalledWith('b', cache);
+    });
+
+    test('sanitize() that removed tracked keys leaves no ghost candidates for the next eviction', async () => {
+        const cache = new PromiseCache<string>(
+            async id => delayedValue(5, id),
+        )
+            .useInvalidation({ expirationMs: 10 })
+            .extend(createEvictionExtension({ maxItems: 2 }));
+
+        let p = cache.get('a');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        p = cache.get('b');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        await vi.advanceTimersByTimeAsync(20);
+        expect(cache.sanitize()).toBe(2);
+
+        p = cache.get('c');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        p = cache.get('d');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        expect(cache.cachedCount).toBe(2);
+        expect(cache.keys().sort()).toEqual(['c', 'd']);
+
+        // Storing past the limit again must evict the oldest *live* key ('c'), never a ghost
+        // ('a'/'b') left behind by a stale `order` set.
+        p = cache.get('e');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        expect(cache.cachedCount).toBe(2);
+        expect(cache.keys().sort()).toEqual(['d', 'e']);
+    });
+
+    test('a store into a cache at maxItems triggers exactly one eviction', async () => {
+        const invalidateSpy = vi.fn();
+        const cache = new PromiseCache<string>(
+            async id => delayedValue(5, id),
+        )
+            .extend({ onRemoved: invalidateSpy })
+            .extend(createEvictionExtension({ maxItems: 2 }));
+
+        let p = cache.get('a');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        p = cache.get('b');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        p = cache.get('c');
+        await vi.advanceTimersByTimeAsync(5);
+        await p;
+
+        expect(invalidateSpy).toHaveBeenCalledTimes(1);
+        expect(cache.cachedCount).toBe(2);
     });
 });

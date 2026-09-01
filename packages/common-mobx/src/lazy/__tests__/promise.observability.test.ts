@@ -1,5 +1,5 @@
 import { setTimeoutAsync } from '@zajno/common/async/timeout';
-import { autorun, reaction } from 'mobx';
+import { autorun, observable, reaction, runInAction } from 'mobx';
 
 import { LazyPromiseObservable } from '../observable.js';
 
@@ -96,5 +96,32 @@ describe('LazyPromise', () => {
 
         expect(seenLoading).toEqual([null, true, false]);
         expect(seenValues).toEqual([undefined, 'value']);
+    });
+
+    it('a getter-based LoadingStateStrategy backed by an observable is reactive', async () => {
+        const loud = observable.box(true);
+        const lazy = new LazyPromiseObservable(() => setTimeoutAsync(50).then(() => 'value'))
+            .withLoadingState({ get refreshing() { return loud.get(); } });
+
+        await lazy.promise;
+
+        const seen: (boolean | null)[] = [];
+        const clean = autorun(() => { seen.push(lazy.isLoading); });
+
+        const refreshPromise = lazy.refresh();
+        expect(lazy.isLoading).toBe(true);
+        expect(seen.at(-1)).toBe(true);
+
+        // flip the observable the strategy getter reads, without touching withLoadingState again
+        runInAction(() => loud.set(false));
+
+        expect(lazy.isLoading).toBe(false);
+        expect(seen.at(-1)).toBe(false);
+
+        runInAction(() => loud.set(true));
+        expect(seen.at(-1)).toBe(true);
+
+        clean();
+        await refreshPromise;
     });
 });

@@ -51,13 +51,6 @@ export type ErrorCallback<TKey> = (key: TKey, error: unknown) => void;
 export type PromiseCacheFetcher<T, TKey> = (key: TKey, refreshing?: boolean) => Promise<T>;
 
 /**
- * How a removal via `invalidate()` interacts with the cache's lifecycle observers:
- * `'notify'` announces the removal to registered `onInvalidated` extension hooks, `'silent'` is for
- * internal housekeeping — e.g. eviction — that observers should not react to.
- */
-export type InvalidationMode = 'notify' | 'silent';
-
-/**
  * Configuration for cache invalidation policy.
  *
  * All fields are optional and readonly so consumers can provide dynamic data via getters.
@@ -89,8 +82,8 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
      * Derived at read time from the pending kind per the configured loading-state strategy, so a strategy
      * change applies to fetches already in flight.
      *
-     * @returns Strategy-derived value while a fetch is in flight; `false` once settled and valid;
-     * `null` if never started, or after an explicit `invalidate()`.
+     * @returns Strategy-derived value while a fetch is in flight; `false` once settled;
+     * `null` if never started, or after an explicit `delete()`.
      */
     getIsLoading(key: TKey): boolean | null;
 
@@ -111,6 +104,9 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
 
     /** Returns true if the item is cached or fetching was initiated. Does not initiate fetching. */
     hasKey(key: TKey): boolean;
+
+    /** Returns the number of cached items (resolved values). */
+    readonly cachedCount: number;
 
     /**
      * Returns an {@link ILazyPromise} handle for a specified cache key, usable anywhere a
@@ -157,13 +153,15 @@ export interface IControllablePromiseCache<T, TKey = string, TInitial extends T 
     set(key: TKey, value: T): void;
 
     /**
-     * Removes all per-key state (item, promise, status, error, timestamp) for the specified key,
-     * like it was never fetched/accessed.
+     * Removes all per-key state (item, promise, status, error, timestamp) for the specified key;
+     * the next read refetches.
      *
-     * @param mode `'notify'` (default) announces the removal to lifecycle observers;
-     * `'silent'` is for internal housekeeping (e.g. eviction) that observers should not react to.
+     * @returns Whether any state existed for the key.
      */
-    invalidate(key: TKey, mode?: InvalidationMode): void;
+    delete(key: TKey): boolean;
+
+    /** @deprecated Use {@link delete}. */
+    invalidate(key: TKey): void;
 
     /** Clears the cache and resets the loading state. */
     clear(): void;

@@ -1,6 +1,6 @@
 import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import { PromiseCache } from './cache.js';
-import type { IControllablePromiseCache, InvalidationMode, PromiseCacheFetcher } from './types.js';
+import type { IControllablePromiseCache, PromiseCacheFetcher } from './types.js';
 
 /**
  * Wraps a {@link PromiseCache} for a non-string key type `K`, translating ids to/from the
@@ -36,6 +36,8 @@ export class KeyedPromiseCache<
         options?: {
             fromKey?: (key: string) => TKey;
             cacheFactory?: (f: PromiseCacheFetcher<T, string>) => TCache;
+            /** A value (non-function) or `(id: TKey) => TInitial` factory. Forwarded to the inner cache's `useInitialValue`. */
+            initialValue?: TInitial | ((id: TKey) => TInitial);
         },
     ) {
         this._toKey = toKey;
@@ -45,11 +47,23 @@ export class KeyedPromiseCache<
             ?? ((f: PromiseCacheFetcher<T, string>) => new PromiseCache<T, string, TInitial>(f) as TCache);
 
         this._cache = cacheFactory((key, refreshing) => fetcher(this._resolveKey(key), refreshing));
+
+        if (options && 'initialValue' in options) {
+            const initial = options.initialValue as TInitial | ((id: TKey) => TInitial);
+            this._cache.useInitialValue(typeof initial === 'function'
+                ? (key: string) => (initial as (id: TKey) => TInitial)(this._resolveKey(key))
+                : initial);
+        }
     }
 
     /** The wrapped cache instance, for configuration and methods not mirrored here. */
     get cache(): TCache {
         return this._cache;
+    }
+
+    /** Returns the number of cached items (resolved values). */
+    get cachedCount(): number {
+        return this._cache.cachedCount;
     }
 
     get(id: TKey): Promise<T | TInitial> {
@@ -96,14 +110,25 @@ export class KeyedPromiseCache<
         this._cache.set(this._registerKey(id), value);
     }
 
-    /** Invalidates the item without touching the registry — a handle obtained before this call stays resolvable and the item can re-fetch. */
-    invalidate(id: TKey, mode?: InvalidationMode) {
-        this._cache.invalidate(this._toKey(id), mode);
+    /** Deletes the item without touching the registry — a handle obtained before this call stays resolvable and the item can re-fetch. */
+    delete(id: TKey): boolean {
+        return this._cache.delete(this._toKey(id));
+    }
+
+    /** @deprecated Use {@link delete}. */
+    invalidate(id: TKey) {
+        this.delete(id);
     }
 
     /** Clears the cache and the id registry. */
     clear() {
         this._cache.clear();
+        this._registry.clear();
+    }
+
+    /** Disposes the inner cache's extensions and clears the id registry. */
+    dispose() {
+        this._cache.dispose();
         this._registry.clear();
     }
 

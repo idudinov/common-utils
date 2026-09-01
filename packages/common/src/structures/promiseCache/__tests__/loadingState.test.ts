@@ -274,13 +274,13 @@ describe('PromiseCache loading state strategy', () => {
             expect(lazy.pendingState).toBeNull();
         });
 
-        test('set() then invalidate() goes back to null', () => {
+        test('set() then delete() goes back to null', () => {
             const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
 
             cache.set('a', 42);
             expect(cache.getIsLoading('a')).toBe(false);
 
-            cache.invalidate('a');
+            cache.delete('a');
             expect(cache.getIsLoading('a')).toBeNull();
         });
     });

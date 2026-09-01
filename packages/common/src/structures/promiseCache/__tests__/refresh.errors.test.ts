@@ -143,4 +143,57 @@ describe('PromiseCache.refresh errors', () => {
         expect(r2).toBe(1);
         expect(r1).toBe(1);
     });
+
+    describe('a failed revalidation does not reset the TTL clock', () => {
+        test('an expired value whose refresh fails stays expired: not valid, no value, error set', async () => {
+            let shouldFail = false;
+            const cache = new PromiseCache<number>(async () => {
+                if (shouldFail) throw new Error('refresh failed');
+                return 1;
+            }).useInvalidation({ expirationMs: 20 });
+
+            await cache.get('a');
+            expect(cache.getIsValid('a')).toBe(true);
+
+            await vi.advanceTimersByTimeAsync(30);
+            expect(cache.getIsValid('a')).toBe(false);
+
+            shouldFail = true;
+            await cache.refresh('a');
+
+            expect(cache.getIsValid('a')).toBe(false);
+            expect(cache.getHasValue('a')).toBe(false);
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+        });
+
+        test('the next get() retries instead of serving the stale value for another TTL window', async () => {
+            let calls = 0;
+            let shouldFail = false;
+            const cache = new PromiseCache<number>(async () => {
+                calls++;
+                if (shouldFail) throw new Error('refresh failed');
+                return calls;
+            }).useInvalidation({ expirationMs: 20 });
+
+            await cache.get('a');
+            await vi.advanceTimersByTimeAsync(30);
+
+            shouldFail = true;
+            await cache.refresh('a');
+            expect(calls).toBe(2);
+
+            // Stale value stays readable via getCurrent(key, false) throughout.
+            expect(cache.getCurrent('a', false)).toBe(1);
+
+            // The next get() retries rather than serving the stale value, since the entry is still expired.
+            await cache.get('a');
+            expect(calls).toBe(3);
+
+            shouldFail = false;
+            await cache.get('a');
+            expect(calls).toBe(4);
+            expect(cache.getIsValid('a')).toBe(true);
+            expect(cache.getCurrent('a', false)).toBe(4);
+        });
+    });
 });

@@ -73,7 +73,7 @@ describe('PromiseCache', () => {
 
         expect(cache.keys()).toStrictEqual(['123']);
         expect(Array.from(cache.keys(true))).toStrictEqual(['123']);
-        cache.invalidate('123');
+        cache.delete('123');
         expect(cache.keys()).toStrictEqual([]);
 
         loaderFn.mockClear();
@@ -115,7 +115,7 @@ describe('PromiseCache', () => {
 
         expect(cache.keys()).toStrictEqual(filler);
 
-        cache.invalidate('1');
+        cache.delete('1');
 
         expect(cache.hasKey('1')).toBe(false);
 

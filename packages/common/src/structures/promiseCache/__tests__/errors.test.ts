@@ -58,19 +58,20 @@ describe('PromiseCache errors', () => {
                     if (shouldFail) throw new Error('fail');
                     return id;
                 },
-            ).useInvalidation({ expirationMs: 50 });
+            );
 
             await cache.get('a');
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
+            // A failed fetch that never cached a value has no timestamp, so it never expires on its
+            // own — the error is sticky until explicitly retried via refresh() or delete().
             shouldFail = false;
-            await vi.advanceTimersByTimeAsync(60);
+            await cache.refresh('a');
 
-            await cache.get('a');
             expect(cache.getLastError('a')).toBeNull();
         });
 
-        test('error is cleared on invalidate', async () => {
+        test('error is cleared on delete', async () => {
             const cache = new PromiseCache<string>(
                 async () => { throw new Error('fail'); },
             );
@@ -78,7 +79,7 @@ describe('PromiseCache errors', () => {
             await cache.get('a');
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
-            cache.invalidate('a');
+            cache.delete('a');
             expect(cache.getLastError('a')).toBeNull();
         });
 
@@ -213,6 +214,29 @@ describe('PromiseCache errors', () => {
             expect(result).toBe('fallback');
         });
 
+        test('with expirationMs configured, a sticky first-fetch error survives the TTL — get() does not retry, refresh() does', async () => {
+            const fetcher = vi.fn(async () => {
+                throw new Error('always fails');
+            });
+
+            const cache = new PromiseCache<string>(fetcher).useInvalidation({ expirationMs: 10 });
+
+            await cache.get('a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+            // No value was ever stored, so there's no timestamp for the TTL to expire.
+            await vi.advanceTimersByTimeAsync(20);
+
+            fetcher.mockClear();
+            await cache.get('a');
+            expect(fetcher).not.toHaveBeenCalled();
+            expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+            await cache.refresh('a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+        });
+
         test('refresh() after sticky error DOES re-fetch', async () => {
             let callCount = 0;
             const cache = new PromiseCache<string>(async () => {
@@ -233,7 +257,7 @@ describe('PromiseCache errors', () => {
             expect(cache.getLastError('a')).toBeNull();
         });
 
-        test('invalidate() + get() after error DOES re-fetch', async () => {
+        test('delete() + get() after error DOES re-fetch', async () => {
             let callCount = 0;
             const cache = new PromiseCache<string>(async () => {
                 callCount++;
@@ -246,8 +270,8 @@ describe('PromiseCache errors', () => {
             expect(callCount).toBe(1);
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
-            // invalidate() resets the error state
-            cache.invalidate('a');
+            // delete() resets the error state
+            cache.delete('a');
             expect(cache.getLastError('a')).toBeNull();
 
             // Now get() should re-fetch
@@ -340,7 +364,7 @@ describe('PromiseCache errors', () => {
             onError.mockClear();
             cache.useOnError(null);
 
-            cache.invalidate('a');
+            cache.delete('a');
             await cache.get('a');
             expect(onError).not.toHaveBeenCalled();
         });
