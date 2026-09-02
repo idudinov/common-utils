@@ -266,8 +266,13 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     getLazy(key: TKey, strategy?: LoadingStateStrategy): ILazyPromise<T, TInitial> {
         this._assertKey(key);
-        const handle = new PromiseCacheLazyHandle<T, TInitial>(this, key);
+        const handle = this.createLazyHandle(key);
         return strategy ? viewLoadingState(handle, strategy) : handle;
+    }
+
+    /** Constructs the {@link ILazyPromise} handle returned by {@link getLazy}. Override to supply a custom handle implementation. */
+    protected createLazyHandle(key: string): ILazyPromise<T, TInitial> {
+        return new PromiseCacheLazyHandle(this, key);
     }
 
     getIsLoading(key: TKey): boolean | null {
@@ -383,11 +388,6 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         }
 
         return hadState;
-    }
-
-    /** @deprecated Use {@link delete}. */
-    invalidate(key: TKey) {
-        this.delete(key);
     }
 
     set(key: TKey, value: T) {

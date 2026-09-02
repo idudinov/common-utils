@@ -112,7 +112,7 @@ Inherited from `Loggable`: `cache.setLoggerFactory(createLogger, 'UserCache')`, 
 
 Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sanitize()` sweeps them out and returns the removed count.
 
-`delete(key)` removes all per-key state; the next read refetches. `onRemoved` fires for every per-key removal — `delete()` (including extension-driven ones such as eviction) and `sanitize()`. It does not fire for `clear()`, which has its own event (`onCleared`). `invalidate(key)` is a deprecated alias for `delete(key)`.
+`delete(key)` removes all per-key state; the next read refetches. `onRemoved` fires for every per-key removal — `delete()` (including extension-driven ones such as eviction) and `sanitize()`. It does not fire for `clear()`, which has its own event (`onCleared`).
 
 Max-items eviction is not core — see `createEvictionExtension` below.
 

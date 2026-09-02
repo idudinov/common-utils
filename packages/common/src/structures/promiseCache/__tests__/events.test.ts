@@ -79,20 +79,6 @@ describe('PromiseCache events', () => {
         expect(onRemoved).toHaveBeenCalledWith({ key: 'a' });
     });
 
-    test('invalidate() still delegates to delete() — same removal and onRemoved event', async () => {
-        const onRemoved = vi.fn();
-
-        const cache = new PromiseCache<string>(async key => key);
-        cache.onRemoved.on(onRemoved);
-
-        await cache.get('a');
-        cache.invalidate('a');
-
-        expect(onRemoved).toHaveBeenCalledTimes(1);
-        expect(onRemoved).toHaveBeenCalledWith({ key: 'a' });
-        expect(cache.hasKey('a')).toBe(false);
-    });
-
     test('onCleared fires on clear(), and also during dispose() (disposers run first, then clear())', async () => {
         const onCleared = vi.fn();
         const order: string[] = [];

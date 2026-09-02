@@ -2,7 +2,7 @@ import { assert } from '../functions/assert.js';
 import { combineDisposers, tryDispose, type IDisposable } from '../functions/disposer.js';
 import type { IResettableModel, IValueModel, ValueStorageProvider } from '../models/types.js';
 import { applyExtensionShape } from '../structures/extension.js';
-import type { IExpireTracker } from '../structures/expire.js';
+import { ExpireTracker, type IExpireTracker } from '../structures/expire.js';
 import type { ILazyPromiseExtension } from './extensions/types.js';
 import { deriveIsLoading, passivePendingKind, refreshPendingKind } from './loadingState.js';
 import type {
@@ -44,7 +44,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     private _isAsyncStateChange = false;
 
     private _promise: Promise<T | TInitial> | undefined;
-    private _expireTracker: IExpireTracker | undefined;
+    private _expireTracker: IExpireTracker = ExpireTracker.neverExpiring();
 
     // Track the active factory promise to determine "latest wins"
     private _activeFactoryPromise: Promise<T | TInitial> | null = null;
@@ -121,9 +121,19 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return this._instance.value;
     }
 
-    /** Configures automatic cache expiration using an expire tracker. */
-    public withExpire(tracker: IExpireTracker | undefined) {
-        this._expireTracker = tracker;
+    /** The expiration tracker driving revalidation; defaults to a never-expiring owned tracker. */
+    public get expireTracker(): IExpireTracker {
+        return this._expireTracker;
+    }
+
+    /** Configures automatic cache expiration: a lifetime in ms constructs and owns an {@link ExpireTracker}. */
+    public withExpire(lifetimeMs: number): this;
+    /** Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker. */
+    public withExpire(tracker: IExpireTracker | undefined): this;
+    public withExpire(arg: number | IExpireTracker | undefined) {
+        this._expireTracker = typeof arg === 'number'
+            ? new ExpireTracker(arg)
+            : arg ?? ExpireTracker.neverExpiring();
         return this;
     }
 
@@ -176,7 +186,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     /**
      * Manually sets the value and marks loading as complete.
-     * Clears any errors and restarts the expiration tracker if configured.
+     * Clears any errors and restarts the expiration tracker.
      *
      * @param res - The value to set
      * @returns The value that was set
@@ -193,7 +203,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             this._promise = Promise.resolve(prepared);
             this._activeFactoryPromise = null;
 
-            this._expireTracker?.restart();
+            this._expireTracker.restart();
         });
 
         return prepared;
@@ -288,7 +298,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         const settled = this._settled.value;
         if (settled === null) {
             nextState = 'loading';
-        } else if (this._expireTracker?.isExpired) {
+        } else if (this._expireTracker.isExpired) {
             nextState = passivePendingKind(settled === 'resolved');
         }
 

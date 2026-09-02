@@ -21,7 +21,7 @@ describe('LazyPromise', () => {
     // --- Deferred state write races under withAsyncStateChange ---
 
     test('revalidation resolving in the same microtask does not stick in "revalidating"', async () => {
-        const expiredTracker = { isExpired: true, restart: vi.fn() };
+        const expiredTracker = { isExpired: true, restart: vi.fn(), expire: vi.fn() };
         let calls = 0;
         const lazy = new LazyPromise(() => {
             calls++;
@@ -43,7 +43,7 @@ describe('LazyPromise', () => {
     });
 
     test('refresh() followed by a same-tick .value read does not downgrade "refreshing"', async () => {
-        const expiredTracker = { isExpired: true, restart: vi.fn() };
+        const expiredTracker = { isExpired: true, restart: vi.fn(), expire: vi.fn() };
         let resolveRefresh!: (value: string) => void;
         let calls = 0;
         const lazy = new LazyPromise(() => {

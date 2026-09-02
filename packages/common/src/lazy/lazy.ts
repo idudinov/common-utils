@@ -1,6 +1,6 @@
 import { tryDispose, type IDisposable } from '../functions/disposer.js';
 import type { IResettableModel } from '../models/types.js';
-import type { IExpireTracker } from '../structures/expire.js';
+import { ExpireTracker, type IExpireTracker } from '../structures/expire.js';
 import type { ILazy } from './types.js';
 
 /**
@@ -10,7 +10,7 @@ import type { ILazy } from './types.js';
 export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
 
     protected _instance: T | undefined = undefined;
-    private _expireTracker: IExpireTracker | undefined;
+    private _expireTracker: IExpireTracker = ExpireTracker.neverExpiring();
     private _disposer?: (prev: T) => void;
     private _error: unknown = null;
 
@@ -26,17 +26,20 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
     public get currentValue() { return this._instance; }
     public get error(): unknown { return this._error; }
 
+    /** The expiration tracker driving revalidation; defaults to a never-expiring owned tracker. */
+    public get expireTracker(): IExpireTracker {
+        return this._expireTracker;
+    }
+
     /** Override me: additional way to make sure instance is valid */
     protected get isValid() {
         if (!this.hasValue) {
             return false;
         }
 
-        if (this._expireTracker) {
-            if (this._expireTracker.isExpired) {
-                this.reset();
-                return false;
-            }
+        if (this._expireTracker.isExpired) {
+            this.reset();
+            return false;
         }
 
         return true;
@@ -48,9 +51,14 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
         return this;
     }
 
-    /** Configures automatic cache expiration using an expire tracker. */
-    public withExpire(tracker: IExpireTracker | undefined) {
-        this._expireTracker = tracker;
+    /** Configures automatic cache expiration: a lifetime in ms constructs and owns an {@link ExpireTracker}. */
+    public withExpire(lifetimeMs: number): this;
+    /** Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker. */
+    public withExpire(tracker: IExpireTracker | undefined): this;
+    public withExpire(arg: number | IExpireTracker | undefined) {
+        this._expireTracker = typeof arg === 'number'
+            ? new ExpireTracker(arg)
+            : arg ?? ExpireTracker.neverExpiring();
         return this;
     }
 
@@ -64,7 +72,7 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
     public setInstance(instance: T | undefined) {
         this._instance = instance;
 
-        if (this._instance !== undefined && this._expireTracker) {
+        if (this._instance !== undefined) {
             this._expireTracker.restart();
         }
     }

@@ -115,11 +115,6 @@ export class KeyedPromiseCache<
         return this._cache.delete(this._toKey(id));
     }
 
-    /** @deprecated Use {@link delete}. */
-    invalidate(id: TKey) {
-        this.delete(id);
-    }
-
     /** Clears the cache and the id registry. */
     clear() {
         this._cache.clear();

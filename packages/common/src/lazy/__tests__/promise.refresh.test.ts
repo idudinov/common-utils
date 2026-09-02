@@ -150,7 +150,8 @@ describe('LazyPromise refresh', () => {
             return 42;
         });
 
-        const lazy = new LazyPromise(factory).withExpire(new ExpireTracker(1000));
+        const expire = new ExpireTracker(1000);
+        const lazy = new LazyPromise(factory).withExpire(expire);
 
         await lazy.promise;
         expect(lazy.error).toBeInstanceOf(Error);
@@ -158,6 +159,7 @@ describe('LazyPromise refresh', () => {
         expect(factory).toHaveBeenCalledTimes(1);
 
         shouldFail = false;
+        expire.expire();
         const result = await lazy.promise;
 
         expect(factory).toHaveBeenCalledTimes(2);

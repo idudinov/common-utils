@@ -14,7 +14,7 @@ export class TempoCache<T> {
     public readonly tracker: ExpireTracker;
 
     constructor(readonly factory: () => T, lifetimeMs: number) {
-        this.tracker = new ExpireTracker(lifetimeMs);
+        this.tracker = new ExpireTracker(lifetimeMs).expire();
     }
 
     public get isExpired() { return this.tracker.isExpired; }

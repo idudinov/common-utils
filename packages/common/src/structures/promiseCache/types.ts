@@ -160,9 +160,6 @@ export interface IControllablePromiseCache<T, TKey = string, TInitial extends T 
      */
     delete(key: TKey): boolean;
 
-    /** @deprecated Use {@link delete}. */
-    invalidate(key: TKey): void;
-
     /** Clears the cache and resets the loading state. */
     clear(): void;
 }
