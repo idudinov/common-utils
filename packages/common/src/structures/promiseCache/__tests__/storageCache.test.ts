@@ -35,7 +35,7 @@ describe('PromiseCache storage cache extension', () => {
         vi.useRealTimers();
     });
 
-    test('cold cache + storage hit: fetcher not called, value served, written back', async () => {
+    test('cold cache + storage hit: fetcher not called, value served, no write-back', async () => {
         const storage = new FakeStorage<string>();
         storage.map.set('a', 'from-storage');
         const setValueSpy = vi.spyOn(storage, 'setValue');
@@ -46,7 +46,40 @@ describe('PromiseCache storage cache extension', () => {
         await expect(cache.get('a')).resolves.toBe('from-storage');
         expect(fetcher).not.toHaveBeenCalled();
         expect(cache.getCurrent('a', false)).toBe('from-storage');
-        expect(setValueSpy).toHaveBeenCalledWith('a', 'from-storage');
+        // no write-back: a storage wrapper stamping metadata on write (e.g. expiry) keeps its original stamp
+        expect(setValueSpy).not.toHaveBeenCalled();
+    });
+
+    test('set() during an in-flight storage-served get() still writes the manual value once', async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
+        const setValueSpy = vi.spyOn(storage, 'setValue');
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
+
+        const getPromise = cache.get('a'); // storage-served, resolves on a later microtask
+        cache.set('a', 'manual');
+        await getPromise;
+
+        expect(cache.getCurrent('a', false)).toBe('manual');
+        expect(setValueSpy).toHaveBeenCalledTimes(1);
+        expect(setValueSpy).toHaveBeenCalledWith('a', 'manual');
+    });
+
+    test('a throwing storage.getValue is recorded as the fetch error, same as a failing fetcher', async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
+        vi.spyOn(storage, 'getValue').mockImplementation(() => {
+            throw new Error('storage broken');
+        });
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
+
+        await expect(cache.get('a')).resolves.toBeUndefined();
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+        expect(fetcher).not.toHaveBeenCalled();
     });
 
     test('cold cache + storage miss: fetcher called, result written to storage', async () => {

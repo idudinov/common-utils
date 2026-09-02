@@ -35,7 +35,7 @@ export function createEvictionExtension<T, TKey extends string = string>(
             }
             return previous;
         },
-        onStored: (key, _value, target) => {
+        onStored: ({ key, target }) => {
             order.delete(key);
             order.add(key);
 
@@ -50,7 +50,7 @@ export function createEvictionExtension<T, TKey extends string = string>(
                 target.delete(candidate);
             }
         },
-        onRemoved: key => {
+        onRemoved: ({ key }) => {
             order.delete(key);
         },
         onCleared: () => {

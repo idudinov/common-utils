@@ -139,17 +139,44 @@ const cache = new PromiseCache<User>(fetchUser)
     .extend(createEvictionExtension({ maxItems: 500 }));
 ```
 
-An `IPromiseCacheExtension<T, TKey, TExtShape>` can wrap the fetcher (`overrideFetcher`), add properties or methods to the instance (`extendShape`), hook into the lifecycle (`onStored`, `onRemoved`, `onCleared`), and release resources (`dispose`) — each hook is documented in [`extensions/types.ts`](extensions/types.ts). Hook exceptions are caught and logged; they never break the cache operation or other hooks.
+An `IPromiseCacheExtension<T, TKey, TExtShape>` can:
+
+- wrap the fetcher — `overrideFetcher`
+- add members — `extendShape`
+- handle lifecycle events — `onStored`, `onRemoved`, `onCleared`
+- clean up — `dispose`
+
+Each hook is documented in [`extensions/types.ts`](extensions/types.ts).
+Lifecycle hook exceptions are caught and logged; they never break the cache or other hooks.
+
+### Fetch requests and context
+
+Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, context }`.
+The constructor's plain `(key, refreshing)` fetcher is adapted into this shape.
+
+`overrideFetcher` wraps it, newest-outermost. A wrapper:
+
+- may be async, and may call `original` at any later point
+- may skip `original` to substitute the result
+- may rebuild the request for `original`, but must keep the same `context` object (the cache verifies this)
+- fails the fetch on a throw or rejection — stored as the key's fetch error
+
+`context` is a per-attempt scratchpad:
+
+- write under your own symbol keys
+- it reappears on the `onStored` payload, so a store can be traced to how it was produced
+- absent for manual `set()`
+- each attempt has its own, and only the winning attempt stores — no races
 
 ### Events
 
 The lifecycle is also observable without `extend()`, via three `IEvent`s (`@zajno/common/observing/event`; `.on(handler)` returns the unsubscribe):
 
-- `onStored` — `{ key, value }`; every successful store (fetch result or `set()`), with the prepared value.
-- `onRemoved` — `{ key }`; every per-key removal — `delete()` and `sanitize()`.
-- `onCleared` — no payload; `clear()`, including the one `dispose()` runs.
+- `onStored` — `{ key, value, target }`; every successful store (fetch result or `set()`), with the prepared value. Extension hooks also see `context`.
+- `onRemoved` — `{ key, target }`; every per-key removal — `delete()` and `sanitize()`.
+- `onCleared` — `{ target }`; `clear()`, including the one `dispose()` runs.
 
-Extension hooks subscribe to these same events, so dispatch order is `extend()`/`.on()` call order.
+`target` is the emitting cache. Extension hooks are direct handlers of these events; dispatch order is `extend()`/`.on()` call order.
 
 ### Batching — `createBatchingExtension`
 
@@ -227,16 +254,23 @@ cache.extend(createStorageCacheExtension(myStorage, {
 }));
 ```
 
-A cold read — the cache holds neither a value nor a stored error for the key, and it's not a `refresh()` — checks `storage` first; a hit is served without calling the fetcher.
-A miss, a `refresh()`, or a revalidation of a key the cache already has state for falls through to the fetcher, and the result is written to `storage`.
-A storage-served hit is written back too — a harmless same-value write.
-`set()` writes the corresponding storage entry.
-Every per-key removal mirrors to storage — `delete()`, `sanitize()`, and eviction.
+Reads:
 
-Known accepted edge: `expire()` on a key that was never successfully fetched still reads `storage` on the next fetch, since expiring doesn't clear the "cold" state.
-`refresh()` is the way to force a network call for such a key.
+- a cold read (no value, no stored error, not a `refresh()`) checks `storage` first
+- a hit is served without calling the fetcher and without writing back — a wrapper that stamps metadata on write (e.g. an expiry) keeps its stamp
+- anything else falls through to the fetcher, and the result is written to `storage`
 
-`storage` is assumed non-throwing: the extension never catches, so a throwing implementation propagates the error out of whichever cache operation triggered it.
+Writes:
+
+- `set()` writes to storage
+- every per-key removal removes from it
+
+Errors:
+
+- a throwing `getValue` becomes the key's fetch error
+- `setValue`/`removeValue` errors are logged and swallowed
+
+Known edge: `expire()` on a never-fetched key still reads `storage` on the next fetch; use `refresh()` to force a network call.
 
 An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
 
@@ -245,23 +279,31 @@ An async backend can still be used behind this extension: wrap it in a sync in-m
 A read-through/write-through persistence extension, shaped like a typical retry-or-cache-backed API layer:
 
 ```ts
+const FromStorage = Symbol('persistence:fromStorage');
+
 function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromiseCacheExtension<T, string> {
     return {
-        overrideFetcher: original => async (key, refreshing) => {
-            if (!refreshing) {
-                const raw = storage.getItem(prefix + key);
-                if (raw != null) return JSON.parse(raw) as T;
+        overrideFetcher: original => request => {
+            if (!request.refreshing) {
+                const raw = storage.getItem(prefix + request.key);
+                if (raw != null) {
+                    request.context[FromStorage] = true;
+                    return JSON.parse(raw) as T;
+                }
             }
-            return original(key, refreshing);
+            return original(request);
         },
-        onStored: (key, value) => storage.setItem(prefix + key, JSON.stringify(value)),
-        onRemoved: key => storage.removeItem(prefix + key),
+        onStored: ({ key, value, context }) => {
+            if (context?.[FromStorage]) return; // storage-served — nothing new to persist
+            storage.setItem(prefix + key, JSON.stringify(value));
+        },
+        onRemoved: ({ key }) => storage.removeItem(prefix + key),
         onCleared: () => { /* clear this prefix's keys */ },
     };
 }
 ```
 
-Retry logic follows the same shape: wrap `original` in `overrideFetcher` with your own attempt/backoff loop.
+Retry logic follows the same shape: wrap `original` with your own attempt/backoff loop.
 
 ## Typed Keys
 

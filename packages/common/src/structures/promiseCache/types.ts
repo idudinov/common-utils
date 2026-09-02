@@ -50,6 +50,44 @@ export type ErrorCallback<TKey> = (key: TKey, error: unknown) => void;
  */
 export type PromiseCacheFetcher<T, TKey> = (key: TKey, refreshing?: boolean) => Promise<T>;
 
+/** Per-fetch-attempt scratchpad, stores arbitrary data. */
+export type FetchContext = Record<string | symbol, unknown>;
+
+/** One fetch attempt's arguments. */
+export interface FetchRequest<TKey extends string = string> {
+    readonly key: TKey;
+
+    /** `true` when the attempt was started via `refresh()`. */
+    readonly refreshing: boolean;
+
+    readonly context: FetchContext;
+}
+
+/** {@link PromiseCacheFetcher} counterpart operating on a whole {@link FetchRequest}. */
+export type FetchRequestHandler<T, TKey extends string = string> = (request: FetchRequest<TKey>) => Promise<T> | T;
+
+/** Base cache event payload. */
+export interface PromiseCacheEvent<T, TKey extends string = string> {
+    /** The cache the event originated from. */
+    readonly target: IControllablePromiseCache<T, TKey, T | undefined>;
+}
+
+/** A value has been stored. */
+export interface PromiseCacheStoredEvent<T, TKey extends string = string> extends PromiseCacheEvent<T, TKey> {
+    readonly key: TKey;
+
+    /** The stored (prepared) value. */
+    readonly value: T;
+
+    /** Per-key per-fetch context; `undefined` when stored via manual `set()`. */
+    readonly context?: FetchContext;
+}
+
+/** A key has been removed. */
+export interface PromiseCacheRemovedEvent<T, TKey extends string = string> extends PromiseCacheEvent<T, TKey> {
+    readonly key: TKey;
+}
+
 /**
  * Configuration for cache invalidation policy.
  *

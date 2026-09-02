@@ -407,12 +407,12 @@ describe('PromiseCache eviction extension', () => {
         expect(cache.hasKey('a')).toBe(false);
         expect(cache.hasKey('b')).toBe(true);
         expect(onRemoved).toHaveBeenCalledTimes(1);
-        expect(onRemoved).toHaveBeenCalledWith('a', cache);
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'a', target: cache }));
 
         // A direct delete() still notifies
         cache.delete('b');
         expect(onRemoved).toHaveBeenCalledTimes(2);
-        expect(onRemoved).toHaveBeenCalledWith('b', cache);
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'b', target: cache }));
     });
 
     test('sanitize() that removed tracked keys leaves no ghost candidates for the next eviction', async () => {

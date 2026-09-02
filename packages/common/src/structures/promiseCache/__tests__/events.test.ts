@@ -22,10 +22,10 @@ describe('PromiseCache events', () => {
         cache.onStored.on(onStored);
 
         await expect(cache.get('a')).resolves.toBe('A!');
-        expect(onStored).toHaveBeenNthCalledWith(1, { key: 'a', value: 'A!' });
+        expect(onStored).toHaveBeenNthCalledWith(1, expect.objectContaining({ key: 'a', value: 'A!' }));
 
         cache.set('b', 'raw');
-        expect(onStored).toHaveBeenNthCalledWith(2, { key: 'b', value: 'raw!' });
+        expect(onStored).toHaveBeenNthCalledWith(2, expect.objectContaining({ key: 'b', value: 'raw!' }));
 
         expect(onStored).toHaveBeenCalledTimes(2);
     });
@@ -40,7 +40,7 @@ describe('PromiseCache events', () => {
         await vi.advanceTimersByTimeAsync(20);
         cache.sanitize();
         expect(onRemoved).toHaveBeenCalledTimes(1);
-        expect(onRemoved).toHaveBeenCalledWith({ key: 'b' });
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'b' }));
 
         await cache.get('c');
         cache.clear();
@@ -49,7 +49,7 @@ describe('PromiseCache events', () => {
         await cache.get('d');
         expect(cache.delete('d')).toBe(true);
         expect(onRemoved).toHaveBeenCalledTimes(2);
-        expect(onRemoved).toHaveBeenCalledWith({ key: 'd' });
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'd' }));
     });
 
     test('delete() on an unknown key fires no onRemoved and returns false', () => {
@@ -76,7 +76,7 @@ describe('PromiseCache events', () => {
         expect(cache.delete('a')).toBe(true);
 
         expect(onRemoved).toHaveBeenCalledTimes(1);
-        expect(onRemoved).toHaveBeenCalledWith({ key: 'a' });
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'a' }));
     });
 
     test('onCleared fires on clear(), and also during dispose() (disposers run first, then clear())', async () => {
@@ -124,7 +124,7 @@ describe('PromiseCache events', () => {
 
         await expect(cache.get('a')).resolves.toBe('a');
 
-        expect(good).toHaveBeenCalledWith({ key: 'a', value: 'a' });
+        expect(good).toHaveBeenCalledWith(expect.objectContaining({ key: 'a', value: 'a' }));
         expect(cache.getCurrent('a', false)).toBe('a');
         expect(errorLog).toHaveBeenCalled();
     });

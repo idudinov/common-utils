@@ -33,10 +33,10 @@ export function createBatchingExtension<T, TKey extends string = string>(
         overrideFetcher: original => {
             processor = new DebounceProcessor<TKey, T[]>(guardedBatchFetcher, delay);
 
-            return async (key, refreshing) => {
-                const res = await processor!.push(key).catch(() => null);
+            return async request => {
+                const res = await processor!.push(request.key).catch(() => null);
                 if (!res?.result || res.result[res.index] === undefined) {
-                    return original(key, refreshing);
+                    return original(request);
                 }
                 return res.result[res.index];
             };

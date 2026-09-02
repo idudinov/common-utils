@@ -12,7 +12,20 @@ import { applyExtensionShape } from '../extension.js';
 import type { IPromiseCacheExtension } from './extensions/index.js';
 import { isInvalidated, ResolveTimestamps } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
-import type { ErrorCallback, IControllablePromiseCache, InvalidationConfig, PromiseCacheFetcher, PromiseCacheOptions, PromiseCacheStorageProvider } from './types.js';
+import type {
+    ErrorCallback,
+    FetchContext,
+    FetchRequest,
+    FetchRequestHandler,
+    IControllablePromiseCache,
+    InvalidationConfig,
+    PromiseCacheEvent,
+    PromiseCacheFetcher,
+    PromiseCacheOptions,
+    PromiseCacheRemovedEvent,
+    PromiseCacheStorageProvider,
+    PromiseCacheStoredEvent,
+} from './types.js';
 
 /** Default storage provider: plain `Map`s and a `Model` box. */
 const defaultStorageProvider: PromiseCacheStorageProvider = {
@@ -64,11 +77,14 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Runs a group of mutations as one change batch and returns `fn`'s result; identity if none was supplied. */
     private readonly _transaction: <R>(fn: () => R) => R;
 
-    private _fetcher: PromiseCacheFetcher<T, TKey>;
+    private _fetcher: FetchRequestHandler<T, TKey>;
 
-    private readonly _onStored = new Event<{ key: TKey; value: T }>();
-    private readonly _onRemoved = new Event<{ key: TKey }>();
-    private readonly _onCleared = new Event<void>();
+    /** Contexts issued to fetch attempts, checked by {@link _assertFetchContext}. */
+    private readonly _issuedContexts = new WeakSet<FetchContext>();
+
+    private readonly _onStored = new Event<PromiseCacheStoredEvent<T, TKey>>();
+    private readonly _onRemoved = new Event<PromiseCacheRemovedEvent<T, TKey>>();
+    private readonly _onCleared = new Event<PromiseCacheEvent<T, TKey>>();
     private _ownDisposer: (() => void) | undefined;
 
     private _invalidationConfig: InvalidationConfig<T> | null = null;
@@ -86,7 +102,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     ) {
         super();
 
-        this._fetcher = fetcher;
+        this._fetcher = request => fetcher(request.key, request.refreshing);
 
         const storage = options?.storage ?? defaultStorageProvider;
         this._prepareValue = options?.prepareValue ?? (value => value);
@@ -157,14 +173,14 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     // --- Events ---
 
-    /** Fires after every successful store — fetch result and manual `set()` — with the stored (prepared) value. */
-    public get onStored(): IEvent<{ key: TKey; value: T }> { return this._onStored.expose(); }
+    /** Fires after every successful store — fetch result and manual `set()`. */
+    public get onStored(): IEvent<Omit<PromiseCacheStoredEvent<T, TKey>, 'context'>> { return this._onStored.expose(); }
 
     /** Fires for every per-key removal: `delete()` and `sanitize()`. Not for `clear()`. */
-    public get onRemoved(): IEvent<{ key: TKey }> { return this._onRemoved.expose(); }
+    public get onRemoved(): IEvent<PromiseCacheRemovedEvent<T, TKey>> { return this._onRemoved.expose(); }
 
     /** Fires after `clear()` resets the cache. */
-    public get onCleared(): IEvent<void> { return this._onCleared.expose(); }
+    public get onCleared(): IEvent<PromiseCacheEvent<T, TKey>> { return this._onCleared.expose(); }
 
     // --- Extensions ---
 
@@ -188,22 +204,24 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         );
 
         if (extension.overrideFetcher) {
-            this._fetcher = extension.overrideFetcher(this._fetcher, extended);
+            const inner = this._fetcher;
+            const guarded: FetchRequestHandler<T, TKey> = request => {
+                this._assertFetchContext(request);
+                return inner(request);
+            };
+            this._fetcher = extension.overrideFetcher(guarded, extended);
         }
 
         if (extension.onStored) {
-            const hook = extension.onStored;
-            this._onStored.on(p => hook(p.key, p.value, extended));
+            this._onStored.on(extension.onStored);
         }
 
         if (extension.onRemoved) {
-            const hook = extension.onRemoved;
-            this._onRemoved.on(p => hook(p.key, extended));
+            this._onRemoved.on(extension.onRemoved);
         }
 
         if (extension.onCleared) {
-            const hook = extension.onCleared;
-            this._onCleared.on(() => hook(extended));
+            this._onCleared.on(extension.onCleared);
         }
 
         if (extension.dispose) {
@@ -253,7 +271,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return `[PromiseCache:${name || '?'}]`;
     }
 
-    /** Forwards the resolved logger to the {@link onStored}, {@link onRemoved}, and {@link onCleared} events, so their handler failures log through it too. */
+    /** Forwards the resolved logger to the extension hook events, so their handler failures log through it too. */
     override setLogger(logger: Getter<Nullable<ILogger>>): this {
         super.setLogger(logger);
         this._onStored.setLogger(this.logger);
@@ -384,7 +402,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         });
 
         if (hadState) {
-            this._onRemoved.trigger({ key });
+            this._onRemoved.trigger({ key, target: this });
         }
 
         return hadState;
@@ -419,7 +437,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._activeFetchPromises.delete(key);
         });
 
-        this._onStored.trigger({ key, value: prepared });
+        this._onStored.trigger({ key, value: prepared, target: this });
     }
 
     /**
@@ -452,7 +470,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             if (this.hasKey(key)) {
                 continue;
             }
-            this._onRemoved.trigger({ key });
+            this._onRemoved.trigger({ key, target: this });
             announced++;
         }
 
@@ -472,7 +490,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._activeFetchPromises.clear();
         });
 
-        this._onCleared.trigger();
+        this._onCleared.trigger({ target: this });
     }
 
     // --- Protected hooks ---
@@ -578,6 +596,13 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         }
     }
 
+    /** Throws unless `request.context` is one this cache issued. */
+    private _assertFetchContext(request: FetchRequest<TKey>) {
+        if (request == null || !this._issuedContexts.has(request.context)) {
+            throw new Error('PromiseCache: the fetch context was lost or replaced by an extension — pass the incoming request\'s context through when calling original');
+        }
+    }
+
     /**
      * Unified fetch method with "latest wins" semantics.
      *
@@ -591,6 +616,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * @returns A promise resolving to the fetched/refreshed value, or the stale value on error.
      */
     protected async _doFetchAsync(key: TKey, refreshing: boolean): Promise<T | TInitial> {
+        const context: FetchContext = {};
+        this._issuedContexts.add(context);
+
         const { factoryPromise, v } = this._transaction(() => {
             this.onBeforeFetch(key);
 
@@ -598,12 +626,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             // configured invalidation policy rather than retrying on every read.
             this._timestamps.consumeForcedExpiry(key);
 
-
             let factoryResult: Promise<T> | T;
             try {
-                factoryResult = this._fetcher(key, refreshing);
+                factoryResult = this._fetcher({ key, refreshing, context });
             } catch (err) {
-                // Re-throwing the original error from a synchronous fetcher
+                // Re-throwing the original error from a synchronous fetcher or override layer
                 // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
                 factoryResult = Promise.reject(err);
             }
@@ -663,7 +690,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                 this.onFetchComplete(key);
             });
 
-            this._onStored.trigger({ key, value: res });
+            this._onStored.trigger({ key, value: res, context, target: this });
             return res;
         }
 
