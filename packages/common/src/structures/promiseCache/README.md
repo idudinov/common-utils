@@ -116,6 +116,7 @@ Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sa
 
 `expire(key)` marks a key stale without removing it.
 The next read starts a revalidation and keeps serving the current value until it settles — no `onRemoved`, no `onStored`.
+The staleness marker lives outside the `storage` provider, so marking a settled key stale changes no provider-backed state — only the next read picks it up; abandoning an in-flight fetch does update provider-backed loading state.
 It abandons an in-flight fetch for the key, discarding its result; starting the next fetch consumes the forced staleness, so a failed revalidation doesn't retry on every following read.
 It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.

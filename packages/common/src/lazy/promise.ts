@@ -125,6 +125,8 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * The expiration tracker driving revalidation; defaults to a never-expiring owned tracker.
      * Expiring while a load is already in flight is absorbed by that load's successful settle —
      * a resolved outcome restarts the tracker regardless of what happened to it in the meantime.
+     * Invoking a load begins a fresh lifetime, so a failed load does not retry until the lifetime
+     * elapses again.
      */
     public get expireTracker(): IExpireTracker {
         return this._expireTracker;

@@ -92,9 +92,9 @@ describe('PromiseCache.expire', () => {
         const p = cache.get('a');
         cache.expire('a');
 
-        // never cached before — the abandoned fetch leaves the key reading as never started
+        // never cached before — the abandoned fetch leaves the key reading as settled with no value, not never started
         expect(cache.getPendingState('a')).toBeNull();
-        expect(cache.getIsLoading('a')).toBeNull();
+        expect(cache.getIsLoading('a')).toBe(false);
 
         await vi.advanceTimersByTimeAsync(10);
         expect(await p).toBeUndefined();
@@ -274,5 +274,29 @@ describe('PromiseCache.expire', () => {
 
         await vi.advanceTimersByTimeAsync(1001);
         expect(cache.getIsValid('a')).toBe(false); // TTL expiry still works after the expire() cycle
+    });
+
+    test('expire() at Date.now() === 0 still forces staleness, despite the sentinel encoding to -0', async () => {
+        vi.setSystemTime(0);
+        let fetchCount = 0;
+        const cache = new PromiseCache<string>(async () => { fetchCount++; return 'a'; });
+
+        await cache.get('a');
+        cache.expire('a');
+
+        expect(cache.getIsValid('a')).toBe(false);
+
+        await cache.get('a');
+        expect(fetchCount).toBe(2);
+    });
+
+    test('expiring a key whose first-ever fetch is in flight leaves it reading as settled, not unknown', async () => {
+        const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+
+        cache.get('a');
+        cache.expire('a');
+
+        expect(cache.hasKey('a')).toBe(true);
+        expect(cache.delete('a')).toBe(true);
     });
 });

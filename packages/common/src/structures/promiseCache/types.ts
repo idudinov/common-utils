@@ -155,7 +155,10 @@ export interface IControllablePromiseCache<T, TKey = string, TInitial extends T 
     /**
      * Marks the key's cached value stale without removing it: the next read starts a revalidation and
      * keeps serving the current value until it settles. Stores no value and fires no events.
-     * Abandons an in-flight fetch for the key — its result is discarded and never stored.
+     * The staleness marker lives outside the storage provider, so marking a settled key stale changes
+     * no provider-backed state — only the next read picks it up.
+     * Abandons an in-flight fetch for the key — its result is discarded and never stored. This does
+     * update provider-backed loading state.
      * Starting a fetch consumes the forced staleness, so a failed revalidation does not retry on
      * every subsequent read.
      * No-op for a key with no per-key state.

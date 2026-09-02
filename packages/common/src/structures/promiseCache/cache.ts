@@ -10,7 +10,7 @@ import type { Getter } from '../../types/getter.js';
 import type { Nullable } from '../../types/misc.js';
 import { applyExtensionShape } from '../extension.js';
 import type { IPromiseCacheExtension } from './extensions/index.js';
-import { isInvalidated } from './invalidation.js';
+import { isInvalidated, ResolveTimestamps } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
 import type { ErrorCallback, IControllablePromiseCache, InvalidationConfig, PromiseCacheFetcher, PromiseCacheOptions, PromiseCacheStorageProvider } from './types.js';
 
@@ -49,12 +49,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores last errors by key. Observable-friendly via IMapModel. */
     protected readonly _errorsMap: IMapModel<string, unknown>;
 
-    /**
-     * Stores items resolve timestamps (for expiration) in map by key. A negative value marks a
-     * force-expired key; its absolute value is the resolve time to restore once a fetch for that
-     * key starts.
-     */
-    protected readonly _timestamps = new Map<string, number>();
+    /** Stores items resolve timestamps (for expiration) by key. */
+    protected readonly _timestamps = new ResolveTimestamps();
 
     /** Tracks the latest in-flight factory promise per key, used to decide which settle wins ("latest wins" refresh semantics). */
     protected readonly _activeFetchPromises = new Map<string, Promise<T | TInitial>>();
@@ -400,17 +396,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return;
         }
         this._transaction(() => {
-            const current = this._timestamps.get(key);
-            this._timestamps.set(key, -Math.abs(current ?? Date.now()));
+            this._timestamps.forceExpire(key);
             if (this._activeFetchPromises.has(key)) {
                 this._activeFetchPromises.delete(key);
                 this._fetchCache.delete(key);
-                if (this._itemsCache.has(key)) {
-                    this.setStatus(key, false);
-                } else {
-                    // No stored value yet — abandoning the fetch leaves the key never started, not settled-with-nothing.
-                    this._itemsStatus.delete(key);
-                }
+                this.setStatus(key, false);
             }
         });
     }
@@ -424,7 +414,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._fetchCache.delete(key);
             this.setStatus(key, false);
             this._itemsCache.set(key, prepared);
-            this._timestamps.set(key, Date.now());
+            this._timestamps.stamp(key);
             this._errorsMap.delete(key);
             this._activeFetchPromises.delete(key);
         });
@@ -496,8 +486,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     /** Checks if the cached item for the specified key is invalidated (expired), per the configured {@link InvalidationConfig}. */
     protected getIsInvalidated(key: string): boolean {
-        const ts = this._timestamps.get(key);
-        if (ts != null && ts < 0) {
+        if (this._timestamps.isForcedExpired(key)) {
             return true;
         }
         return isInvalidated(
@@ -554,7 +543,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores the result for the specified key. Override to add a hook. */
     protected storeResult(key: string, res: T) {
         this._itemsCache.set(key, res);
-        this._timestamps.set(key, Date.now());
+        this._timestamps.stamp(key);
         this._errorsMap.delete(key);
     }
 
@@ -606,12 +595,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this.onBeforeFetch(key);
 
             // An attempt consumes the forced staleness: after a failed fetch the key follows the
-            // configured invalidation policy rather than retrying on every read. Restoring the
-            // original resolve time (not `Date.now()`) keeps TTL-based expiry accurate.
-            const ts = this._timestamps.get(key);
-            if (ts != null && ts < 0) {
-                this._timestamps.set(key, Math.abs(ts));
-            }
+            // configured invalidation policy rather than retrying on every read.
+            this._timestamps.consumeForcedExpiry(key);
+
 
             let factoryResult: Promise<T> | T;
             try {

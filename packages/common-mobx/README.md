@@ -12,7 +12,9 @@ All runtime dependencies are peer.
 
 * [ViewModels]('./src/viewModels/index.ts') – useful for MVVM pattern
 
-* Structures for caching & observing: [`PromiseCacheObservable`](./src/structures/promiseCache.ts) — a thin `PromiseCache` preset wired to a mobx storage provider (also exported standalone as `mobxStorageProvider`, for composing custom presets)
+* Structures for caching & observing: [`PromiseCacheObservable`](./src/structures/promiseCache.ts) — a thin `PromiseCache` preset wired to a mobx storage provider (also exported standalone as `mobxStorageProvider`, for composing custom presets).
+  `cache.expire(key)` on a settled key wakes no reaction, so a reactive reader keeps serving the current value until something else makes it read; expiring a key with a fetch in flight does notify, since the loading state changes.
+  Same for `lazy.expireTracker.expire()` on `LazyPromiseObservable`.
 
 * [`TransitionObserver`](./src/observing/transition.ts) – neat wrapper of mobx's `reaction`
 

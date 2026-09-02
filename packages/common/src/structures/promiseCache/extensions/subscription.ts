@@ -53,8 +53,6 @@ interface Entry<T> {
 
 /**
  * Owns the per-key subscription state for one {@link createSubscriptionExtension} instance.
- * Split out from the factory so each concern (starting a fetch, tearing an entry down, draining
- * buffered updates) is a named method rather than a nested closure.
  */
 class SubscriptionExtensionImpl<T, TKey extends string = string> {
     private readonly entries = new Map<TKey, Entry<T>>();
