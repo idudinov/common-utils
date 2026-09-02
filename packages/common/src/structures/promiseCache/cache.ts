@@ -20,6 +20,9 @@ const defaultStorageProvider: PromiseCacheStorageProvider = {
     createValue: <V>(initial: V) => new Model<V>(initial),
 };
 
+/** Sentinel timestamp marking a force-expired key; `Date.now()` never produces it, so it's safe to check by identity. */
+const EXPIRED_TIMESTAMP = -Infinity;
+
 /**
  * Caches items by a string key, resolved by an async fetcher (`Promise`).
  *
@@ -49,7 +52,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores last errors by key. Observable-friendly via IMapModel. */
     protected readonly _errorsMap: IMapModel<string, unknown>;
 
-    /** Stores items resolve timestamps (for expiration) in map by key. */
+    /** Stores items resolve timestamps (for expiration) in map by key. `-Infinity` marks a force-expired key. */
     protected readonly _timestamps = new Map<string, number>();
 
     /** Tracks the latest in-flight factory promise per key, used to decide which settle wins ("latest wins" refresh semantics). */
@@ -390,6 +393,14 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return hadState;
     }
 
+    expire(key: TKey): void {
+        this._assertKey(key);
+        if (!this.hasKey(key)) {
+            return;
+        }
+        this._timestamps.set(key, EXPIRED_TIMESTAMP);
+    }
+
     set(key: TKey, value: T) {
         this._assertKey(key);
 
@@ -471,6 +482,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     /** Checks if the cached item for the specified key is invalidated (expired), per the configured {@link InvalidationConfig}. */
     protected getIsInvalidated(key: string): boolean {
+        if (this._timestamps.get(key) === EXPIRED_TIMESTAMP) {
+            return true;
+        }
         return isInvalidated(
             this._invalidationConfig,
             key,

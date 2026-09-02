@@ -114,6 +114,11 @@ Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sa
 
 `delete(key)` removes all per-key state; the next read refetches. `onRemoved` fires for every per-key removal — `delete()` (including extension-driven ones such as eviction) and `sanitize()`. It does not fire for `clear()`, which has its own event (`onCleared`).
 
+`expire(key)` marks a key stale without removing it.
+The next read starts a revalidation and keeps serving the current value until it settles — no `onRemoved`, no `onStored`.
+It's a no-op for a key with no cached or in-flight state.
+`sanitize()` sweeps a force-expired key like any other invalid item.
+
 Max-items eviction is not core — see `createEvictionExtension` below.
 
 > A read of an expired value whose revalidation keeps failing retries on every read (the entry never becomes valid again on its own). Throttle at the call site, or use `invalidationCheck` to hold the value valid despite the failure. A failed *first* fetch — no value was ever stored — has no TTL to expire from: the error is sticky until `refresh(key)` or `delete(key)` retries it.

@@ -115,6 +115,10 @@ export class KeyedPromiseCache<
         return this._cache.delete(this._toKey(id));
     }
 
+    expire(id: TKey): void {
+        this._cache.expire(this._toKey(id));
+    }
+
     /** Clears the cache and the id registry. */
     clear() {
         this._cache.clear();
