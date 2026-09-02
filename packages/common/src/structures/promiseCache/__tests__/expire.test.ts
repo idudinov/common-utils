@@ -57,7 +57,7 @@ describe('PromiseCache.expire', () => {
         expect(cache.getIsValid('a')).toBe(true);
     });
 
-    test('failed refetch after expire() leaves the key invalid; next get() retries', async () => {
+    test('a failed revalidation of a force-expired key does not refetch on the immediately following read', async () => {
         let shouldFail = true;
         const cache = new PromiseCache<string>(async () => {
             if (shouldFail) {
@@ -69,13 +69,80 @@ describe('PromiseCache.expire', () => {
         await cache.get('a');
         cache.expire('a');
 
+        // starting this attempt consumes the sentinel, even though the attempt itself fails
         await cache.get('a');
-        expect(cache.getIsValid('a')).toBe(false);
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
         shouldFail = false;
         const result = await cache.get('a');
-        expect(result).toBe('recovered');
+        expect(result).toBeUndefined(); // sentinel already consumed — no retry, no fetcher call
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+        // a further expire() is needed to force another attempt
+        cache.expire('a');
+        const recovered = await cache.get('a');
+        expect(recovered).toBe('recovered');
+    });
+
+    test('expire() during an in-flight get() abandons the fetch: the awaiter gets the initial value, nothing is stored', async () => {
+        const stored = vi.fn();
+        const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+        cache.onStored.on(stored);
+
+        const p = cache.get('a');
+        cache.expire('a');
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p).toBeUndefined();
+        expect(stored).not.toHaveBeenCalled();
+        expect(cache.getIsValid('a')).toBe(false);
+
+        const p2 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p2).toBe(1);
         expect(cache.getIsValid('a')).toBe(true);
+    });
+
+    test('expire() during an in-flight refresh() abandons the fetch: the awaiter keeps the stale value, nothing is stored', async () => {
+        let counter = 0;
+        const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter));
+
+        const p0 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        await p0;
+        expect(cache.getCurrent('a', false)).toBe(1);
+
+        const stored = vi.fn();
+        cache.onStored.on(stored);
+
+        const p = cache.refresh('a');
+        cache.expire('a');
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p).toBe(1); // stale value kept — the abandoned fetch's result is discarded
+        expect(stored).not.toHaveBeenCalled();
+        expect(cache.getCurrent('a', false)).toBe(1);
+
+        const p2 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p2).toBe(3); // fresh fetch; the abandoned one still ran to completion as counter 2
+    });
+
+    test('the sentinel combines with expirationMs: consuming it restores time-based expiry', async () => {
+        let counter = 0;
+        const cache = new PromiseCache<number>(async () => ++counter).useInvalidation({ expirationMs: 100 });
+
+        await cache.get('a');
+        expect(cache.getIsValid('a')).toBe(true);
+
+        cache.expire('a');
+        expect(cache.getIsValid('a')).toBe(false);
+
+        await cache.get('a'); // consumes the sentinel and refetches, restoring the timestamp to now
+        expect(cache.getIsValid('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(101);
+        expect(cache.getIsValid('a')).toBe(false); // TTL-based expiry resumes normally
     });
 
     test('expire() on an errored key (sticky error) makes the next get() refetch', async () => {

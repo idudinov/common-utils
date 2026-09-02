@@ -26,7 +26,7 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
     public get currentValue() { return this._instance; }
     public get error(): unknown { return this._error; }
 
-    /** The expiration tracker driving revalidation; defaults to a never-expiring owned tracker. */
+    /** The expiration tracker; once it expires, the next access resets and re-creates the value. Defaults to a never-expiring owned tracker. */
     public get expireTracker(): IExpireTracker {
         return this._expireTracker;
     }

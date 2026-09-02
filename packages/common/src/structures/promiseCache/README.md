@@ -116,7 +116,8 @@ Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sa
 
 `expire(key)` marks a key stale without removing it.
 The next read starts a revalidation and keeps serving the current value until it settles — no `onRemoved`, no `onStored`.
-It's a no-op for a key with no cached or in-flight state.
+It abandons an in-flight fetch for the key, discarding its result; starting the next fetch consumes the forced staleness, so a failed revalidation doesn't retry on every following read.
+It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.
 
 Max-items eviction is not core — see `createEvictionExtension` below.
@@ -214,25 +215,25 @@ const live = createSubscriptionExtension<User>(subscribeToUser, {
 
 ### Storage cache — `createStorageCacheExtension`
 
-Read-through/write-through persistence backed by an `IStorage`/`IStorageSync`:
+Read-through/write-through persistence for a `PromiseCache`, backed by a synchronous `IStorageSync`:
 
 ```ts
 import { createStorageCacheExtension } from '@zajno/common/structures/promiseCache';
 
 cache.extend(createStorageCacheExtension(myStorage, {
-    storageKey: (key) => `user:${key}`,   // defaults to identity
-    clearStorage: () => myStorage.clear(), // called on cache.clear(); omit to leave storage untouched
-    onError: (err, key) => reportToSentry(err, { cacheKey: key }),
+    storageKey: (key) => `user:${key}`,        // defaults to identity
+    clearStorage: () => clearMyStorageScope(),  // called on cache.clear(); omit to leave storage untouched — IStorageSync has no clear()
 }));
 ```
 
-A cold `get()` checks `storage` first; a hit is served without calling the fetcher and is not written back — a read-through hit must not bump storage-side expiration.
-A miss falls through to the fetcher, and the result is written to `storage`.
-`refresh()` always calls the fetcher, and writes its result.
+A cold read — no cached value yet, and not a `refresh()` — checks `storage` first; a hit is served without calling the fetcher.
+A miss, a `refresh()`, or a revalidation of an already-cached (expired) value falls through to the fetcher, and the result is written to `storage`.
+A storage-served hit is written back too — a harmless same-value write.
 `set()`/`delete()` write/remove the corresponding storage entry.
-A storage read failure counts as a miss and is reported via `onError`, if provided; without it, the error is swallowed.
 
-Writes to `storage` — on store, removal, and `clear()` — are fire-and-forget: with an async `storage`, the triggering cache operation does not wait for the write to settle.
+`storage` is assumed non-throwing: the extension never catches, so a throwing implementation propagates the error out of whichever cache operation triggered it.
+
+An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
 
 ### Writing a custom extension
 

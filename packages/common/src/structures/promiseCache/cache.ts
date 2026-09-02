@@ -398,7 +398,14 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         if (!this.hasKey(key)) {
             return;
         }
-        this._timestamps.set(key, EXPIRED_TIMESTAMP);
+        this._transaction(() => {
+            this._timestamps.set(key, EXPIRED_TIMESTAMP);
+            if (this._activeFetchPromises.has(key)) {
+                this._activeFetchPromises.delete(key);
+                this._fetchCache.delete(key);
+                this.setStatus(key, false);
+            }
+        });
     }
 
     set(key: TKey, value: T) {
@@ -589,6 +596,12 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     protected async _doFetchAsync(key: TKey, refreshing: boolean): Promise<T | TInitial> {
         const { factoryPromise, v } = this._transaction(() => {
             this.onBeforeFetch(key);
+
+            // An attempt consumes the forced staleness: after a failed fetch the key follows the
+            // configured invalidation policy rather than retrying on every read.
+            if (this._timestamps.get(key) === EXPIRED_TIMESTAMP) {
+                this._timestamps.set(key, Date.now());
+            }
 
             let factoryResult: Promise<T> | T;
             try {

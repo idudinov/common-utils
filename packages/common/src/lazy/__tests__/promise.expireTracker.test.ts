@@ -82,7 +82,7 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.pendingState).toBeNull();
     });
 
-    test('a failed revalidation after expire() keeps retrying until a load succeeds', async () => {
+    test('a failed load with the default tracker retries only after another expire() call', async () => {
         let shouldFail = true;
         const factory = vi.fn(async () => {
             if (shouldFail) {
@@ -96,6 +96,10 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.error).toBeInstanceOf(Error);
         expect(factory).toHaveBeenCalledTimes(1);
 
+        // the failed attempt above already restarted the (never-expiring) tracker — a passive read must not retry
+        expect(lazy.value).toBeUndefined();
+        expect(factory).toHaveBeenCalledTimes(1);
+
         lazy.expireTracker.expire();
         await lazy.promise;
         expect(lazy.error).toBeInstanceOf(Error);
@@ -106,6 +110,33 @@ describe('LazyPromise.expireTracker', () => {
         const result = await lazy.promise;
 
         expect(factory).toHaveBeenCalledTimes(3);
+        expect(result).toBe(42);
+        expect(lazy.hasValue).toBeTrue();
+    });
+
+    test('a failed load with withExpire(N) retries after the lifetime elapses, without a manual expire()', async () => {
+        let shouldFail = true;
+        const factory = vi.fn(async () => {
+            if (shouldFail) {
+                throw new Error('fail');
+            }
+            return 42;
+        });
+        const lazy = new LazyPromise(factory).withExpire(1000);
+
+        await lazy.promise;
+        expect(lazy.error).toBeInstanceOf(Error);
+        expect(factory).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(999);
+        void lazy.value; // passive read; the lifetime hasn't elapsed yet — must not retry
+        expect(factory).toHaveBeenCalledTimes(1);
+
+        shouldFail = false;
+        await vi.advanceTimersByTimeAsync(2);
+        const result = await lazy.promise;
+
+        expect(factory).toHaveBeenCalledTimes(2);
         expect(result).toBe(42);
         expect(lazy.hasValue).toBeTrue();
     });
@@ -152,7 +183,7 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.value).toBe(2);
     });
 
-    test('withExpire(tracker) attaches a given tracker, same as before', async () => {
+    test('withExpire(tracker) attaches the given tracker instance directly', async () => {
         let counter = 0;
         const tracker = new ExpireTracker(1000);
         const lazy = new LazyPromise(() => delay(10).then(() => ++counter)).withExpire(tracker);

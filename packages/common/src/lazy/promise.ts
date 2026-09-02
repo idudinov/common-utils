@@ -121,7 +121,11 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return this._instance.value;
     }
 
-    /** The expiration tracker driving revalidation; defaults to a never-expiring owned tracker. */
+    /**
+     * The expiration tracker driving revalidation; defaults to a never-expiring owned tracker.
+     * Expiring while a load is already in flight is absorbed by that load's successful settle —
+     * a resolved outcome restarts the tracker regardless of what happened to it in the meantime.
+     */
     public get expireTracker(): IExpireTracker {
         return this._expireTracker;
     }
@@ -314,6 +318,10 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             // Case when refreshing already is happening - we have an active promise
             return this._activeFactoryPromise;
         }
+
+        // Restarting at invocation paces retries: a failed attempt still starts a lifetime.
+        // A successful settle restarts again, so a resolved value's lifetime is measured from settle.
+        this._expireTracker.restart();
 
         let factoryResult: Promise<T> | T;
         try {

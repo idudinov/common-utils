@@ -169,6 +169,16 @@ describe('KeyedPromiseCache', () => {
             expect(cache.keys()).toEqual([4]);
         });
 
+        test('expire(id) forwards to the inner cache, marking it stale without removing it', async () => {
+            const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
+
+            await cache.get(4);
+            cache.expire(4);
+
+            expect(cache.cache.getIsValid('4')).toBe(false);
+            expect(cache.cache.hasKey('4')).toBe(true);
+        });
+
         test('delete() on an id with no cache state returns false', async () => {
             const cache = new KeyedPromiseCache(async (id: number) => id, id => id.toString());
 

@@ -23,7 +23,7 @@ describe('ExpireTracker', () => {
         expect(tracker.remainingMs).toBe(0);
     });
 
-    test('restart() after expire() works as before', async () => {
+    test('restart() after expire() clears the forced expiry and begins a fresh lifetime', async () => {
         const tracker = new ExpireTracker(10);
         tracker.expire();
         expect(tracker.isExpired).toBeTrue();

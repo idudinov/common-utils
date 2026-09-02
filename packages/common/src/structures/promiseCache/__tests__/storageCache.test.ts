@@ -1,18 +1,14 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { IStorageSync } from '../../../storage/types.js';
-import { Storages } from '../../../storage/wrappers.js';
 import { createStorageCacheExtension, PromiseCache } from '../index.js';
+import { delayedValue } from './helpers.js';
 
 /** In-memory sync storage fake, keyed like {@link IStorageSync}. */
 class FakeStorage<T> implements IStorageSync<T | null> {
     readonly map = new Map<string, T | null>();
-    getError: Error | null = null;
 
     getValue(key: string): T | null {
-        if (this.getError) {
-            throw this.getError;
-        }
         return this.map.get(key) ?? null;
     }
 
@@ -39,7 +35,7 @@ describe('PromiseCache storage cache extension', () => {
         vi.useRealTimers();
     });
 
-    test('cold cache + storage hit: fetcher not called, value served, no echo write', async () => {
+    test('cold cache + storage hit: fetcher not called, value served, written back', async () => {
         const storage = new FakeStorage<string>();
         storage.map.set('a', 'from-storage');
 
@@ -105,23 +101,6 @@ describe('PromiseCache storage cache extension', () => {
         expect(storage.map.get('b')).toBe('val-b');
     });
 
-    test('a storage read failure is treated as a miss: onError called, fetcher result still stored', async () => {
-        const storage = new FakeStorage<string>();
-        storage.getError = new Error('read boom');
-
-        const onError = vi.fn();
-        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
-        const cache = new PromiseCache<string>(fetcher)
-            .extend(createStorageCacheExtension(storage, { onError }));
-
-        await expect(cache.get('a')).resolves.toBe('fetched-a');
-        expect(fetcher).toHaveBeenCalledTimes(1);
-        expect(onError).toHaveBeenCalledWith(storage.getError, 'a');
-
-        storage.getError = null;
-        expect(storage.map.get('a')).toBe('fetched-a');
-    });
-
     test('storageKey mapping applies to both reads and writes', async () => {
         const storage = new FakeStorage<string>();
         storage.map.set('prefix:a', 'from-storage');
@@ -137,18 +116,55 @@ describe('PromiseCache storage cache extension', () => {
         expect(storage.map.get('prefix:b')).toBe('fetched-b');
     });
 
-    test('works with an async (IStorage) wrapper, not just sync storage', async () => {
-        const syncStorage = new FakeStorage<string>();
-        const asyncStorage = Storages.toAsync(syncStorage);
+    test('expire(key) forces the next get() to call the fetcher instead of reading storage', async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
 
         const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
-        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(asyncStorage));
+        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
+
+        await expect(cache.get('a')).resolves.toBe('from-storage');
+        expect(fetcher).not.toHaveBeenCalled();
+
+        cache.expire('a');
 
         await expect(cache.get('a')).resolves.toBe('fetched-a');
         expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(storage.map.get('a')).toBe('fetched-a');
+    });
 
-        // Write is fire-and-forget: it lands on the microtask queue, not necessarily before this line.
-        await Promise.resolve();
-        expect(syncStorage.map.get('a')).toBe('fetched-a');
+    test('useInvalidation({ expirationMs }) with the extension refetches instead of reading storage once expired', async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher)
+            .extend(createStorageCacheExtension(storage))
+            .useInvalidation({ expirationMs: 100 });
+
+        await expect(cache.get('a')).resolves.toBe('from-storage');
+        expect(fetcher).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(101);
+
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    test('a storage-hit get() superseded by refresh() ends up with storage holding the refresh result', async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
+
+        const fetcher = vi.fn(async (key: string) => delayedValue(10, `fresh-${key}`));
+        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
+
+        const getPromise = cache.get('a');
+        const refreshPromise = cache.refresh('a');
+
+        await vi.advanceTimersByTimeAsync(10);
+        await Promise.all([getPromise, refreshPromise]);
+
+        expect(cache.getCurrent('a', false)).toBe('fresh-a');
+        expect(storage.map.get('a')).toBe('fresh-a');
     });
 });
