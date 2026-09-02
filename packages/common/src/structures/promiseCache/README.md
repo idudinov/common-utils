@@ -207,6 +207,28 @@ const live = createSubscriptionExtension<User>(subscribeToUser, {
 });
 ```
 
+### Storage cache — `createStorageCacheExtension`
+
+Read-through/write-through persistence backed by an `IStorage`/`IStorageSync`:
+
+```ts
+import { createStorageCacheExtension } from '@zajno/common/structures/promiseCache';
+
+cache.extend(createStorageCacheExtension(myStorage, {
+    storageKey: (key) => `user:${key}`,   // defaults to identity
+    clearStorage: () => myStorage.clear(), // called on cache.clear(); omit to leave storage untouched
+    onError: (err, key) => reportToSentry(err, { cacheKey: key }),
+}));
+```
+
+A cold `get()` checks `storage` first; a hit is served without calling the fetcher and is not written back — a read-through hit must not bump storage-side expiration.
+A miss falls through to the fetcher, and the result is written to `storage`.
+`refresh()` always calls the fetcher, and writes its result.
+`set()`/`delete()` write/remove the corresponding storage entry.
+A storage read failure counts as a miss and is reported via `onError`, if provided; without it, the error is swallowed.
+
+Writes to `storage` — on store, removal, and `clear()` — are fire-and-forget: with an async `storage`, the triggering cache operation does not wait for the write to settle.
+
 ### Writing a custom extension
 
 A read-through/write-through persistence extension, shaped like a typical retry-or-cache-backed API layer:
