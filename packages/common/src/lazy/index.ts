@@ -4,3 +4,4 @@ export * from './light.js';
 export * from './lazy.js';
 export * from './loadingState.js';
 export * from './promise.js';
+export * from './view.js';
