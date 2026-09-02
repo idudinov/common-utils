@@ -59,6 +59,9 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
         this._expireTracker = typeof arg === 'number'
             ? new ExpireTracker(arg)
             : arg ?? ExpireTracker.neverExpiring();
+        if (this._instance !== undefined) {
+            this._expireTracker.restart();
+        }
         return this;
     }
 

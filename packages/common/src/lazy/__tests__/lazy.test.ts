@@ -72,6 +72,19 @@ describe('Lazy', () => {
         expect(l.expireTracker.isExpired).toBeFalse(); // restarted by the re-create
     });
 
+    test('withExpire(N) on an already-loaded value restarts the tracker; the next read re-creates once it elapses', () => {
+        let incrementor = 0;
+        const l = new Lazy(() => ++incrementor);
+
+        expect(l.value).toBe(1);
+
+        l.withExpire(10);
+        expect(l.value).toBe(1); // no re-create yet — the tracker just restarted
+
+        vi.advanceTimersByTime(11);
+        expect(l.value).toBe(2);
+    });
+
     test('disposes', () => {
         {
             const l = new Lazy(() => 42);

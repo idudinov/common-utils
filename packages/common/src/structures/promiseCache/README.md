@@ -226,10 +226,14 @@ cache.extend(createStorageCacheExtension(myStorage, {
 }));
 ```
 
-A cold read — no cached value yet, and not a `refresh()` — checks `storage` first; a hit is served without calling the fetcher.
-A miss, a `refresh()`, or a revalidation of an already-cached (expired) value falls through to the fetcher, and the result is written to `storage`.
+A cold read — the cache holds neither a value nor a stored error for the key, and it's not a `refresh()` — checks `storage` first; a hit is served without calling the fetcher.
+A miss, a `refresh()`, or a revalidation of a key the cache already has state for falls through to the fetcher, and the result is written to `storage`.
 A storage-served hit is written back too — a harmless same-value write.
-`set()`/`delete()` write/remove the corresponding storage entry.
+`set()` writes the corresponding storage entry.
+Every per-key removal mirrors to storage — `delete()`, `sanitize()`, and eviction.
+
+Known accepted edge: `expire()` on a key that was never successfully fetched still reads `storage` on the next fetch, since expiring doesn't clear the "cold" state.
+`refresh()` is the way to force a network call for such a key.
 
 `storage` is assumed non-throwing: the extension never catches, so a throwing implementation propagates the error out of whichever cache operation triggered it.
 

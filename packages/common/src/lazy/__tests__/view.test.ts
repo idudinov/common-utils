@@ -41,6 +41,34 @@ describe('LazyPromiseView', () => {
         expect(view.hasResolvedValue()).toBe(source.hasResolvedValue());
     });
 
+    test('isLoading and pendingState forward mid-flight', async () => {
+        const source = new LazyPromise(() => setTimeoutAsync(10).then(() => 1));
+        const view = new ValueOverrideView(source, 42);
+
+        const p = source.promise;
+        expect(view.isLoading).toBe(true);
+        expect(view.pendingState).toBe('loading');
+
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
+
+        expect(view.isLoading).toBe(false);
+        expect(view.pendingState).toBeNull();
+    });
+
+    test('error forwards after a failing source load', async () => {
+        const error = new Error('fail');
+        const source = new LazyPromise<number>(() => setTimeoutAsync(10).then((): number => { throw error; }));
+        const view = new ValueOverrideView(source, 42);
+
+        const p = source.promise;
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
+
+        expect(view.error).toBe(error);
+        expect(source.error).toBe(error);
+    });
+
     test('refresh() and promise forward to the source', async () => {
         let counter = 0;
         const factory = vi.fn(() => setTimeoutAsync(10).then(() => ++counter));

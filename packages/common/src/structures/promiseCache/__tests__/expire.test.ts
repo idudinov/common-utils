@@ -92,10 +92,15 @@ describe('PromiseCache.expire', () => {
         const p = cache.get('a');
         cache.expire('a');
 
+        // never cached before — the abandoned fetch leaves the key reading as never started
+        expect(cache.getPendingState('a')).toBeNull();
+        expect(cache.getIsLoading('a')).toBeNull();
+
         await vi.advanceTimersByTimeAsync(10);
         expect(await p).toBeUndefined();
         expect(stored).not.toHaveBeenCalled();
         expect(cache.getIsValid('a')).toBe(false);
+        expect(cache.loadingCount).toBe(0);
 
         const p2 = cache.get('a');
         await vi.advanceTimersByTimeAsync(10);
@@ -118,10 +123,15 @@ describe('PromiseCache.expire', () => {
         const p = cache.refresh('a');
         cache.expire('a');
 
+        // already cached — the abandoned fetch leaves the key reading as settled, not in flight
+        expect(cache.getPendingState('a')).toBeNull();
+        expect(cache.getIsLoading('a')).toBe(false);
+
         await vi.advanceTimersByTimeAsync(10);
         expect(await p).toBe(1); // stale value kept — the abandoned fetch's result is discarded
         expect(stored).not.toHaveBeenCalled();
         expect(cache.getCurrent('a', false)).toBe(1);
+        expect(cache.loadingCount).toBe(0);
 
         const p2 = cache.get('a');
         await vi.advanceTimersByTimeAsync(10);
@@ -222,5 +232,47 @@ describe('PromiseCache.expire', () => {
 
         cache.expire('a');
         expect(cache.invalidCount).toBe(1);
+    });
+
+    test('a failed revalidation restores the original resolve time, so TTL expiry still lands on schedule', async () => {
+        let shouldFail = false;
+        const cache = new PromiseCache<string>(async () => {
+            if (shouldFail) {
+                throw new Error('fail');
+            }
+            return 'value';
+        }).useInvalidation({ expirationMs: 1000 });
+
+        await cache.get('a'); // resolves at t0
+        expect(cache.getIsValid('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(500);
+        cache.expire('a'); // at t500 — the original t0 resolve time is preserved, not overwritten
+
+        shouldFail = true;
+        await cache.get('a'); // consumes the forced expiry, restores the t0 timestamp, then fails
+
+        // t500, only 500ms since t0: the restored (real) age is still under the 1000ms TTL —
+        // if the consumption had written Date.now() instead, this would stay valid until t1500
+        expect(cache.getIsValid('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(600); // now at t1100 — past the original TTL window
+        expect(cache.getIsValid('a')).toBe(false);
+    });
+
+    test('expire() called twice then a successful fetch leaves timestamps behaving normally', async () => {
+        let counter = 0;
+        const cache = new PromiseCache<number>(async () => ++counter).useInvalidation({ expirationMs: 1000 });
+
+        await cache.get('a');
+        cache.expire('a');
+        cache.expire('a'); // second call must not double-negate the stored timestamp
+
+        const result = await cache.get('a');
+        expect(result).toBe(2);
+        expect(cache.getIsValid('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(1001);
+        expect(cache.getIsValid('a')).toBe(false); // TTL expiry still works after the expire() cycle
     });
 });

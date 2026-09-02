@@ -38,6 +38,7 @@ describe('PromiseCache storage cache extension', () => {
     test('cold cache + storage hit: fetcher not called, value served, written back', async () => {
         const storage = new FakeStorage<string>();
         storage.map.set('a', 'from-storage');
+        const setValueSpy = vi.spyOn(storage, 'setValue');
 
         const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
         const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
@@ -45,7 +46,7 @@ describe('PromiseCache storage cache extension', () => {
         await expect(cache.get('a')).resolves.toBe('from-storage');
         expect(fetcher).not.toHaveBeenCalled();
         expect(cache.getCurrent('a', false)).toBe('from-storage');
-        expect(storage.map.get('a')).toBe('from-storage');
+        expect(setValueSpy).toHaveBeenCalledWith('a', 'from-storage');
     });
 
     test('cold cache + storage miss: fetcher called, result written to storage', async () => {
@@ -166,5 +167,88 @@ describe('PromiseCache storage cache extension', () => {
 
         expect(cache.getCurrent('a', false)).toBe('fresh-a');
         expect(storage.map.get('a')).toBe('fresh-a');
+    });
+
+    test('a stale value with a failed refresh() stays a cache hit: expiring it reads the fetcher, not storage', async () => {
+        const storage = new FakeStorage<string>();
+
+        let shouldFail = false;
+        const fetcher = vi.fn(async (key: string) => {
+            if (shouldFail) {
+                throw new Error('fail');
+            }
+            return `fetched-${key}`;
+        });
+        const cache = new PromiseCache<string>(fetcher)
+            .extend(createStorageCacheExtension(storage))
+            .useInvalidation({ expirationMs: 100 });
+
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
+
+        shouldFail = true;
+        await cache.refresh('a'); // fails — error stored, stale value kept
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+        expect(cache.getCurrent('a', false)).toBe('fetched-a');
+
+        shouldFail = false;
+        storage.map.set('a', 'from-storage'); // present in storage — must be bypassed, the cache has a value
+
+        cache.expire('a');
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+        expect(fetcher).toHaveBeenCalledTimes(3);
+
+        // same check via TTL lapse instead of expire()
+        shouldFail = true;
+        await cache.refresh('a');
+        await vi.advanceTimersByTimeAsync(101);
+        shouldFail = false;
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+        expect(fetcher).toHaveBeenCalledTimes(5);
+    });
+
+    test('an errored key with no cached value reads the fetcher, not storage, after expire()', async () => {
+        const storage = new FakeStorage<string>();
+
+        let shouldFail = true;
+        const fetcher = vi.fn(async (key: string) => {
+            if (shouldFail) {
+                throw new Error('fail');
+            }
+            return `fetched-${key}`;
+        });
+        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
+
+        // storage is empty, so this cold read falls through to the fetcher and fails
+        await cache.get('a');
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+        // a value shows up in storage out-of-band, but the error must still block the storage read
+        storage.map.set('a', 'from-storage');
+        cache.expire('a');
+
+        shouldFail = false;
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+        expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    // Known limitation: a force-expired key that never held a cached value looks cold again, so the
+    // gate reads storage instead of calling the fetcher; refresh() is the workaround.
+    test.fails('expire() before the first cached value forces a fetcher call', async () => {
+        const storage = new FakeStorage<string>();
+
+        const fetcher = vi.fn(async (key: string) => delayedValue(10, `fetched-${key}`));
+        const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
+
+        const p = cache.get('a'); // first-ever fetch for this key, still in flight
+        cache.expire('a'); // abandons it — its result is discarded, never stored
+
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
+
+        storage.map.set('a', 'from-storage'); // shows up out-of-band before the retry
+
+        await cache.get('a');
+        expect(fetcher).toHaveBeenCalledTimes(2);
     });
 });

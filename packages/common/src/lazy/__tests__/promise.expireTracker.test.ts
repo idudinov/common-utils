@@ -183,7 +183,7 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.value).toBe(2);
     });
 
-    test('withExpire(tracker) attaches the given tracker instance directly', async () => {
+    test('withExpire(tracker) attaches the given tracker instance directly; it drives revalidation like an owned one', async () => {
         let counter = 0;
         const tracker = new ExpireTracker(1000);
         const lazy = new LazyPromise(() => delay(10).then(() => ++counter)).withExpire(tracker);
@@ -193,6 +193,69 @@ describe('LazyPromise.expireTracker', () => {
         const p1 = lazy.promise;
         await vi.advanceTimersByTimeAsync(10);
         await p1;
-        expect(tracker.isExpired).toBeFalse();
+        expect(lazy.value).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(1001);
+        expect(lazy.value).toBe(1); // starts a revalidation
+        expect(lazy.pendingState).toBe('revalidating');
+
+        const p2 = lazy.promise;
+        await vi.advanceTimersByTimeAsync(10);
+        await p2;
+        expect(lazy.value).toBe(2);
+    });
+
+    test('withExpire(N) on an already-loaded value restarts the tracker; the next read revalidates once it elapses', async () => {
+        let counter = 0;
+        const lazy = new LazyPromise(() => delay(10).then(() => ++counter));
+
+        const p1 = lazy.promise;
+        await vi.advanceTimersByTimeAsync(10);
+        await p1;
+        expect(lazy.value).toBe(1);
+
+        lazy.withExpire(20);
+
+        await vi.advanceTimersByTimeAsync(20);
+        expect(lazy.value).toBe(1); // starts a revalidation
+        expect(lazy.pendingState).toBe('revalidating');
+
+        const p2 = lazy.promise;
+        await vi.advanceTimersByTimeAsync(10);
+        await p2;
+        expect(lazy.value).toBe(2);
+    });
+
+    test('expire() mid-flight is absorbed by the in-flight load\'s settle', async () => {
+        const factory = vi.fn(() => delay(10).then(() => 1));
+        const lazy = new LazyPromise(factory);
+
+        const p1 = lazy.promise;
+        lazy.expireTracker.expire();
+
+        await vi.advanceTimersByTimeAsync(10);
+        await p1;
+
+        expect(lazy.expireTracker.isExpired).toBeFalse();
+        expect(factory).toHaveBeenCalledTimes(1);
+        expect(lazy.pendingState).toBeNull();
+    });
+
+    test('a joined .value read mid-flight does not restart a shared tracker', async () => {
+        const tracker = new ExpireTracker(1000);
+        const lazy = new LazyPromise(() => delay(10).then(() => 1)).withExpire(tracker);
+
+        const p1 = lazy.promise; // starts the load, restarts the tracker
+        expect(tracker.remainingMs).toBe(1000);
+
+        await vi.advanceTimersByTimeAsync(5);
+        expect(tracker.remainingMs).toBe(995);
+
+        void lazy.value; // joined read while still in flight — must not restart the tracker
+
+        expect(tracker.remainingMs).toBe(995);
+
+        await vi.advanceTimersByTimeAsync(5);
+        await p1;
     });
 });

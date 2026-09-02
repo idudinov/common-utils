@@ -138,6 +138,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         this._expireTracker = typeof arg === 'number'
             ? new ExpireTracker(arg)
             : arg ?? ExpireTracker.neverExpiring();
+        if (this._settled.value === 'resolved') {
+            this._expireTracker.restart();
+        }
         return this;
     }
 
@@ -188,13 +191,6 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return extended;
     }
 
-    /**
-     * Manually sets the value and marks loading as complete.
-     * Clears any errors and restarts the expiration tracker.
-     *
-     * @param res - The value to set
-     * @returns The value that was set
-     */
     public setInstance(res: T) {
         const prepared = this._prepareValue(res);
 
@@ -320,7 +316,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         }
 
         // Restarting at invocation paces retries: a failed attempt still starts a lifetime.
-        // A successful settle restarts again, so a resolved value's lifetime is measured from settle.
+        // A successful settle restarts again.
         this._expireTracker.restart();
 
         let factoryResult: Promise<T> | T;

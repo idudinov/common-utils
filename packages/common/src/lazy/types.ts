@@ -111,6 +111,7 @@ export interface IControllableLazyPromise<T, TInitial extends T | undefined = un
     extends ILazyPromise<T, TInitial>, IResettableModel {
     /**
      * Manually sets the value and marks loading as complete.
+     * Clears any errors and restarts the expiration tracker.
      * Useful for cache synchronization and manual state updates.
      *
      * @param value - The value to set

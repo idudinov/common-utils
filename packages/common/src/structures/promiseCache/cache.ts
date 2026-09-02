@@ -20,9 +20,6 @@ const defaultStorageProvider: PromiseCacheStorageProvider = {
     createValue: <V>(initial: V) => new Model<V>(initial),
 };
 
-/** Sentinel timestamp marking a force-expired key; `Date.now()` never produces it, so it's safe to check by identity. */
-const EXPIRED_TIMESTAMP = -Infinity;
-
 /**
  * Caches items by a string key, resolved by an async fetcher (`Promise`).
  *
@@ -52,7 +49,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores last errors by key. Observable-friendly via IMapModel. */
     protected readonly _errorsMap: IMapModel<string, unknown>;
 
-    /** Stores items resolve timestamps (for expiration) in map by key. `-Infinity` marks a force-expired key. */
+    /**
+     * Stores items resolve timestamps (for expiration) in map by key. A negative value marks a
+     * force-expired key; its absolute value is the resolve time to restore once a fetch for that
+     * key starts.
+     */
     protected readonly _timestamps = new Map<string, number>();
 
     /** Tracks the latest in-flight factory promise per key, used to decide which settle wins ("latest wins" refresh semantics). */
@@ -274,7 +275,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     }
 
     /** Constructs the {@link ILazyPromise} handle returned by {@link getLazy}. Override to supply a custom handle implementation. */
-    protected createLazyHandle(key: string): ILazyPromise<T, TInitial> {
+    protected createLazyHandle(key: TKey): ILazyPromise<T, TInitial> {
         return new PromiseCacheLazyHandle(this, key);
     }
 
@@ -399,11 +400,17 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return;
         }
         this._transaction(() => {
-            this._timestamps.set(key, EXPIRED_TIMESTAMP);
+            const current = this._timestamps.get(key);
+            this._timestamps.set(key, -Math.abs(current ?? Date.now()));
             if (this._activeFetchPromises.has(key)) {
                 this._activeFetchPromises.delete(key);
                 this._fetchCache.delete(key);
-                this.setStatus(key, false);
+                if (this._itemsCache.has(key)) {
+                    this.setStatus(key, false);
+                } else {
+                    // No stored value yet — abandoning the fetch leaves the key never started, not settled-with-nothing.
+                    this._itemsStatus.delete(key);
+                }
             }
         });
     }
@@ -489,7 +496,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     /** Checks if the cached item for the specified key is invalidated (expired), per the configured {@link InvalidationConfig}. */
     protected getIsInvalidated(key: string): boolean {
-        if (this._timestamps.get(key) === EXPIRED_TIMESTAMP) {
+        const ts = this._timestamps.get(key);
+        if (ts != null && ts < 0) {
             return true;
         }
         return isInvalidated(
@@ -567,7 +575,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this._loadingCount.value = this._loadingCount.value - 1;
     }
 
-    /** Hooks into cancelled fetch cleanup (set()/delete() called mid-flight). Only decrements loading count — per-key cleanup is the responsibility of the mutation that cancelled the fetch. */
+    /** Hooks into cancelled fetch cleanup. Only decrements loading count — per-key cleanup is the responsibility of whatever cancelled the fetch. */
     protected onFetchCancelled(_key: string) {
         this._loadingCount.value = this._loadingCount.value - 1;
     }
@@ -598,9 +606,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this.onBeforeFetch(key);
 
             // An attempt consumes the forced staleness: after a failed fetch the key follows the
-            // configured invalidation policy rather than retrying on every read.
-            if (this._timestamps.get(key) === EXPIRED_TIMESTAMP) {
-                this._timestamps.set(key, Date.now());
+            // configured invalidation policy rather than retrying on every read. Restoring the
+            // original resolve time (not `Date.now()`) keeps TTL-based expiry accurate.
+            const ts = this._timestamps.get(key);
+            if (ts != null && ts < 0) {
+                this._timestamps.set(key, Math.abs(ts));
             }
 
             let factoryResult: Promise<T> | T;
@@ -651,8 +661,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                     : this._getCachedOrInitial(key);
             }
 
-            // Active promise removed by set()/delete() — the mutation already
-            // cleaned up per-key bookkeeping; only the loading count needs decrementing.
+            // The active promise was already removed elsewhere — per-key bookkeeping is
+            // already handled; only the loading count needs decrementing.
             this._transaction(() => this.onFetchCancelled(key));
             return this._getCachedOrInitial(key);
         }

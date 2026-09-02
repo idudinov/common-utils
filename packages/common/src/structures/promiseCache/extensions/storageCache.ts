@@ -13,10 +13,15 @@ export interface StorageCacheExtensionOptions<TKey extends string = string> {
  * Read-through/write-through persistence for a {@link PromiseCache}, backed by a synchronous
  * {@link IStorageSync}.
  *
- * A cold read — no cached value yet, and not a `refresh()` — checks `storage` first; a hit is
- * served without calling the original fetcher. A miss, a `refresh()`, or a revalidation of an
- * already-cached (expired) value falls through to the original fetcher, and its result is written
- * to `storage`. A storage-served hit is written back too — a harmless same-value write.
+ * A cold read — the cache holds neither a value nor a stored error for the key, and it's not a
+ * `refresh()` — checks `storage` first; a hit is served without calling the original fetcher.
+ * A miss, a `refresh()`, or a revalidation of a key the cache already has state for falls through
+ * to the original fetcher, and its result is written to `storage`. A storage-served hit is written
+ * back too — a harmless same-value write.
+ *
+ * Known accepted edge: `expire()` called on a key that was never successfully fetched still reads
+ * `storage` on the next fetch, since expiring doesn't clear the "cold" state — `refresh()` is the
+ * way to force a network call for such a key.
  *
  * `storage` is assumed non-throwing: this extension never catches, so a throwing implementation
  * propagates the error out of whichever cache operation triggered it.
@@ -29,7 +34,7 @@ export function createStorageCacheExtension<T, TKey extends string = string>(
 
     return {
         overrideFetcher: (original, target) => (key, refreshing) => {
-            if (!refreshing && !target.getHasValue(key)) {
+            if (!refreshing && !target.getHasValue(key) && target.getLastError(key) == null) {
                 const cached = storage.getValue(toStorageKey(key));
                 if (cached != null) {
                     return Promise.resolve(cached);

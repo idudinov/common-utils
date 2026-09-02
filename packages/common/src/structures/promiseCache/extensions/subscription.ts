@@ -52,37 +52,41 @@ interface Entry<T> {
 }
 
 /**
- * Adapts a live {@link SubscriptionSource} into a {@link PromiseCache} extension: the first emission
- * resolves the fetch, later ones update the cached value, and the extension solely owns each key's
- * subscription.
- *
- * Replaces the cache's fetcher instead of wrapping it, and holds that cache's subscription state —
- * create one instance per cache, and apply it via `extend()` before the first fetch.
+ * Owns the per-key subscription state for one {@link createSubscriptionExtension} instance.
+ * Split out from the factory so each concern (starting a fetch, tearing an entry down, draining
+ * buffered updates) is a named method rather than a nested closure.
  */
-export function createSubscriptionExtension<T, TKey extends string = string>(
-    subscribe: SubscriptionSource<T, TKey>,
-    options?: SubscriptionExtensionOptions<T, TKey>,
-): ISubscriptionExtension<T, TKey> {
-    const resolvePolicy = options?.policy ?? 'forever';
-    const merge = options?.merge;
+class SubscriptionExtensionImpl<T, TKey extends string = string> {
+    private readonly entries = new Map<TKey, Entry<T>>();
+    private target: IControllablePromiseCache<T, TKey, T | undefined> | null = null;
 
-    const entries = new Map<TKey, Entry<T>>();
+    constructor(
+        private readonly subscribe: SubscriptionSource<T, TKey>,
+        private readonly resolvePolicy: SubscriptionPolicy | ((key: TKey) => SubscriptionPolicy),
+        private readonly merge: ((current: T, incoming: T) => T) | undefined,
+    ) { }
 
-    let target: IControllablePromiseCache<T, TKey, T | undefined> | null = null;
+    get observedCount(): number {
+        return this.entries.size;
+    }
+
+    setTarget(target: IControllablePromiseCache<T, TKey, T | undefined>) {
+        this.target = target;
+    }
 
     /** Merges (if configured) or replaces the cached value for a live update emission. */
-    const applyUpdate = (key: TKey, value: T) => {
-        const cache = target;
+    private applyUpdate(key: TKey, value: T) {
+        const cache = this.target;
         if (!cache) {
             return;
         }
-        const current = merge ? cache.getCurrent(key, false) : undefined;
-        cache.set(key, current !== undefined ? merge!(current, value) : value);
-    };
+        const current = this.merge ? cache.getCurrent(key, false) : undefined;
+        cache.set(key, current !== undefined ? this.merge!(current, value) : value);
+    }
 
-    const stopEntry = (key: TKey, entry: Entry<T>) => {
-        if (entries.get(key) === entry) {
-            entries.delete(key);
+    private stopEntry(key: TKey, entry: Entry<T>) {
+        if (this.entries.get(key) === entry) {
+            this.entries.delete(key);
         }
 
         if (entry.timer != null) {
@@ -101,7 +105,7 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
         } else {
             entry.stopRequested = true;
         }
-    };
+    }
 
     /**
      * Schedules a single microtask drain of `entry.buffer`, in causal order, guarded against a
@@ -110,42 +114,52 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
      * synchronously triggers) — that emission then queues onto the live buffer instead of jumping
      * ahead of the remainder still waiting to drain.
      */
-    const scheduleDrain = (key: TKey, entry: Entry<T>) => {
+    private scheduleDrain(key: TKey, entry: Entry<T>) {
         entry.drainScheduled = true;
         queueMicrotask(() => {
-            while (entries.get(key) === entry && entry.buffer.length > 0) {
+            while (this.entries.get(key) === entry && entry.buffer.length > 0) {
                 const value = entry.buffer.shift()!;
-                applyUpdate(key, value);
+                this.applyUpdate(key, value);
             }
             entry.drainScheduled = false;
         });
-    };
+    }
 
-    const teardown = (key: TKey) => {
-        const entry = entries.get(key);
+    private teardown(key: TKey) {
+        const entry = this.entries.get(key);
         if (entry) {
-            stopEntry(key, entry);
+            this.stopEntry(key, entry);
         }
-    };
+    }
 
-    const teardownAll = () => {
-        for (const key of Array.from(entries.keys())) {
-            teardown(key);
+    private teardownAll() {
+        for (const key of Array.from(this.entries.keys())) {
+            this.teardown(key);
         }
-        entries.clear();
-    };
+        this.entries.clear();
+    }
 
-    const fetch: PromiseCacheFetcher<T, TKey> = key => {
-        const cache = target;
+    fetch: PromiseCacheFetcher<T, TKey> = key => {
+        const cache = this.target;
         if (!cache) {
             return Promise.reject(new Error('Subscription extension must be applied via extend() before the cache fetches'));
         }
 
-        teardown(key);
+        this.teardown(key);
 
-        const policy = typeof resolvePolicy === 'function' ? resolvePolicy(key) : resolvePolicy;
-        const entry: Entry<T> = { policy, unsub: null, timer: null, cancelled: false, stopRequested: false, cancelFetch: null, stored: false, buffer: [], drainScheduled: false };
-        entries.set(key, entry);
+        const policy = typeof this.resolvePolicy === 'function' ? this.resolvePolicy(key) : this.resolvePolicy;
+        const entry: Entry<T> = {
+            policy,
+            unsub: null,
+            timer: null,
+            cancelled: false,
+            stopRequested: false,
+            cancelFetch: null,
+            stored: false,
+            buffer: [],
+            drainScheduled: false,
+        };
+        this.entries.set(key, entry);
 
         return new Promise<T>((resolve, reject) => {
             let settled = false;
@@ -169,7 +183,7 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
                 }
                 entry.timer = setTimeout(() => {
                     entry.timer = null;
-                    stopEntry(key, entry);
+                    this.stopEntry(key, entry);
                     cache.delete(key);
                 }, entry.policy.ttlMs);
             };
@@ -186,7 +200,7 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
 
                     if (entry.policy === 'off') {
                         if (entry.unsub) {
-                            stopEntry(key, entry);
+                            this.stopEntry(key, entry);
                         } else {
                             entry.cancelled = true;
                             entry.stopRequested = true;
@@ -196,7 +210,7 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
                 }
 
                 // A torn-down entry must never write to the cache, even if it wins the race to settle.
-                if (entries.get(key) !== entry) {
+                if (this.entries.get(key) !== entry) {
                     return;
                 }
 
@@ -210,15 +224,15 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
                     return;
                 }
 
-                applyUpdate(key, value);
+                this.applyUpdate(key, value);
             };
 
             let sourceResult: DisposeFunction | Promise<DisposeFunction>;
             try {
-                sourceResult = subscribe(key, emit);
+                sourceResult = this.subscribe(key, emit);
             } catch (err) {
                 settled = true;
-                stopEntry(key, entry);
+                this.stopEntry(key, entry);
                 // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the source's original error
                 reject(err);
                 return;
@@ -228,19 +242,19 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
                 unsub => {
                     entry.unsub = unsub;
                     if (entry.stopRequested) {
-                        stopEntry(key, entry);
+                        this.stopEntry(key, entry);
                     }
                 },
                 err => {
                     if (!settled) {
                         settled = true;
-                        stopEntry(key, entry);
+                        this.stopEntry(key, entry);
                         // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the source's original error
                         reject(err);
-                    } else if (entries.get(key) === entry) {
+                    } else if (this.entries.get(key) === entry) {
                         // The subscription died with no replacement in flight — delete so the
                         // key doesn't keep serving a value with no live source behind it.
-                        stopEntry(key, entry);
+                        this.stopEntry(key, entry);
                         cache.delete(key);
                     }
                 },
@@ -248,29 +262,58 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
         });
     };
 
+    onStored(key: TKey) {
+        const entry = this.entries.get(key);
+        if (!entry) {
+            return;
+        }
+
+        entry.stored = true;
+
+        if (entry.buffer.length === 0 || entry.drainScheduled) {
+            return;
+        }
+
+        this.scheduleDrain(key, entry);
+    }
+
+    onRemoved(key: TKey) {
+        this.teardown(key);
+    }
+
+    onCleared() {
+        this.teardownAll();
+    }
+
+    dispose() {
+        this.teardownAll();
+    }
+}
+
+/**
+ * Adapts a live {@link SubscriptionSource} into a {@link PromiseCache} extension: the first emission
+ * resolves the fetch, later ones update the cached value, and the extension solely owns each key's
+ * subscription.
+ *
+ * Replaces the cache's fetcher instead of wrapping it, and holds that cache's subscription state —
+ * create one instance per cache, and apply it via `extend()` before the first fetch.
+ */
+export function createSubscriptionExtension<T, TKey extends string = string>(
+    subscribe: SubscriptionSource<T, TKey>,
+    options?: SubscriptionExtensionOptions<T, TKey>,
+): ISubscriptionExtension<T, TKey> {
+    const impl = new SubscriptionExtensionImpl<T, TKey>(subscribe, options?.policy ?? 'forever', options?.merge);
+
     return {
-        fetch,
-        get observedCount() { return entries.size; },
+        fetch: impl.fetch,
+        get observedCount() { return impl.observedCount; },
         overrideFetcher: (_original, extended) => {
-            target = extended;
-            return fetch;
+            impl.setTarget(extended);
+            return impl.fetch;
         },
-        onStored: key => {
-            const entry = entries.get(key);
-            if (!entry) {
-                return;
-            }
-
-            entry.stored = true;
-
-            if (entry.buffer.length === 0 || entry.drainScheduled) {
-                return;
-            }
-
-            scheduleDrain(key, entry);
-        },
-        onRemoved: key => teardown(key),
-        onCleared: () => teardownAll(),
-        dispose: () => teardownAll(),
+        onStored: key => impl.onStored(key),
+        onRemoved: key => impl.onRemoved(key),
+        onCleared: () => impl.onCleared(),
+        dispose: () => impl.dispose(),
     };
 }
