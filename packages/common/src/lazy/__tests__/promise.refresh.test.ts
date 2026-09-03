@@ -1,5 +1,4 @@
 import { LazyPromise } from '../promise.js';
-import { ExpireTracker } from '../../structures/expire.js';
 
 describe('LazyPromise refresh', () => {
 
@@ -150,14 +149,16 @@ describe('LazyPromise refresh', () => {
             return 42;
         });
 
-        const lazy = new LazyPromise(factory).withExpire(new ExpireTracker(1000));
+        const lazy = new LazyPromise(factory).withExpire(1000);
 
         await lazy.promise;
         expect(lazy.error).toBeInstanceOf(Error);
         expect(lazy.hasValue).toBeFalse();
         expect(factory).toHaveBeenCalledTimes(1);
 
+        // the failed attempt above already started the tracker's lifetime — the retry arrives once it elapses
         shouldFail = false;
+        await vi.advanceTimersByTimeAsync(1000);
         const result = await lazy.promise;
 
         expect(factory).toHaveBeenCalledTimes(2);

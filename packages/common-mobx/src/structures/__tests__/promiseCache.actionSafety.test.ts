@@ -37,7 +37,7 @@ describe('PromiseCache observable — enforceActions: always', () => {
         cache.set('a', 2);
         expect(cache.getCurrent('a', false)).toBe(2);
 
-        cache.invalidate('a');
+        cache.delete('a');
         expect(cache.getCurrent('a', false)).toBeUndefined();
 
         cache.useLoadingState({ loading: false });
@@ -131,7 +131,7 @@ describe('PromiseCache observable — enforceActions: always', () => {
         expect(cache.sanitize()).toBe(1);
 
         await cache.get('b');
-        cache.invalidate('b');
+        cache.delete('b');
         expect(cache.hasKey('b')).toBe(false);
 
         disposer.dispose();

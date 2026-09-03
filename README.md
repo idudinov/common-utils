@@ -19,6 +19,8 @@ All build/test/lint commands live in one place: [`packages/scripts`](./packages/
 - Run tasks from a package dir: `npm run <task>`.
 - Do not call `tsc` / `vitest` / `eslint` directly — the tasks carry the right configs.
 - `npm run dev` from the repo root type-checks every package in one watching `tsc` process — sources, tests, `packages/common/utils` and `packages/scripts` (see [`tsconfig.dev.json`](./tsconfig.dev.json)). It also refreshes `dist/`, since each package's check project references the sibling `dist` projects it depends on.
+- `npm run build:dev` is the same thing without watching — one pass over everything, useful before a commit.
+  Reach for it whenever test files changed: `build` compiles sources only, and `test` runs them without type-checking, so a type error in a test slips past both.
 - Args after `--` are passed to the underlying command. Example — run one test:
 
 ```sh

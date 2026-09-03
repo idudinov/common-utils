@@ -7,6 +7,7 @@
     ],
     "scripts": {
         "dev": "tsc -b tsconfig.dev.json --watch",
+        "build:dev": "tsc -b tsconfig.dev.json",
         "build": "time npm run build:clean --workspaces --if-present",
         "check": "time npm run check --workspaces --if-present",
         "lint": "time npm run lint --workspaces --if-present",
@@ -33,9 +34,8 @@
         "yalc": "^1.0.0-pre.53"
     },
     "allowScripts": {
-        "@firebase/util@1.15.2": true,
-        "esbuild@0.27.7": true,
+        "@firebase/util@1.15.3": true,
         "fsevents@2.3.3": true,
-        "protobufjs@7.6.5": true
+        "protobufjs@7.6.6": true
     }
 }

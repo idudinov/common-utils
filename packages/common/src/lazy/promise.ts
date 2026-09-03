@@ -2,7 +2,7 @@ import { assert } from '../functions/assert.js';
 import { combineDisposers, tryDispose, type IDisposable } from '../functions/disposer.js';
 import type { IResettableModel, IValueModel, ValueStorageProvider } from '../models/types.js';
 import { applyExtensionShape } from '../structures/extension.js';
-import type { IExpireTracker } from '../structures/expire.js';
+import { ExpireTracker, type IExpireTracker } from '../structures/expire.js';
 import type { ILazyPromiseExtension } from './extensions/types.js';
 import { deriveIsLoading, passivePendingKind, refreshPendingKind } from './loadingState.js';
 import type {
@@ -10,6 +10,7 @@ import type {
     IResolvedLazyPromise,
     LazyFactory,
     LazyPromiseOptions,
+    LoadingStates,
     LoadingStateStrategy,
     PendingLoadState,
 } from './types.js';
@@ -44,7 +45,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     private _isAsyncStateChange = false;
 
     private _promise: Promise<T | TInitial> | undefined;
-    private _expireTracker: IExpireTracker | undefined;
+    private _expireTracker: IExpireTracker = ExpireTracker.neverExpiring();
 
     // Track the active factory promise to determine "latest wins"
     private _activeFactoryPromise: Promise<T | TInitial> | null = null;
@@ -76,8 +77,14 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         this._loadingStrategy = storage.createValue<LoadingStateStrategy | undefined>(undefined);
     }
 
-    /** Current loading state: true = loading, false = loaded, null = not started. Pending states report per {@link withLoadingState}. */
-    public get isLoading(): boolean | null {
+    /**
+     * The current loading state; see {@link LoadingStates}.
+     * Does not trigger loading.
+     *
+     * A pending load's reported value comes from the configured strategy.
+     * See {@link withLoadingState} and {@link LoadingStateStrategy}.
+     */
+    public get isLoading(): LoadingStates {
         const pending = this._pending.value;
         if (pending !== null) {
             return deriveIsLoading(pending, this._loadingStrategy.value);
@@ -121,9 +128,33 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return this._instance.value;
     }
 
-    /** Configures automatic cache expiration using an expire tracker. */
-    public withExpire(tracker: IExpireTracker | undefined) {
-        this._expireTracker = tracker;
+    /**
+     * The expiration tracker driving revalidation; defaults to a never-expiring owned tracker.
+     *
+     * Restarts the lifetime:
+     * - when a load starts, so a failed load waits one out before retrying
+     * - when a load resolves, unless {@link IExpireTracker.isForceExpired}
+     *
+     * An `expire()` made mid-load therefore survives that load, and the next read revalidates.
+     */
+    public get expireTracker(): IExpireTracker {
+        return this._expireTracker;
+    }
+
+    /** Configures automatic cache expiration: a lifetime in ms constructs and owns an {@link ExpireTracker}. */
+    public withExpire(lifetimeMs: number): this;
+    /**
+     * Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker.
+     * If a value is already loaded, this also restarts the tracker, pushing its next expiry out by a full lifetime.
+     */
+    public withExpire(tracker: IExpireTracker | undefined): this;
+    public withExpire(arg: number | IExpireTracker | undefined) {
+        this._expireTracker = typeof arg === 'number'
+            ? new ExpireTracker(arg)
+            : arg ?? ExpireTracker.neverExpiring();
+        if (this._settled.value === 'resolved') {
+            this._expireTracker.restart();
+        }
         return this;
     }
 
@@ -133,7 +164,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     /**
-     * Configures the per-pending-state `isLoading` override; missing keys fall back to {@link DEFAULT_LOADING_STATE}.
+     * Configures the per-pending-state `isLoading` override; missing keys fall back to `DEFAULT_LOADING_STATE`.
      * The strategy is stored as-is (not copied), so getter-based fields are re-evaluated on each read.
      * Subsequent calls replace the previous strategy, not merge with it.
      */
@@ -174,26 +205,31 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         return extended;
     }
 
-    /**
-     * Manually sets the value and marks loading as complete.
-     * Clears any errors and restarts the expiration tracker if configured.
-     *
-     * @param res - The value to set
-     * @returns The value that was set
-     */
     public setInstance(res: T) {
+        return this.setResolved(res, true);
+    }
+
+    /**
+     * Stores `res` as the resolved value.
+     *
+     * @param forceRestartExpiration Restarts the expiration lifetime even while
+     * {@link IExpireTracker.isForceExpired}; otherwise that mark survives this write.
+     */
+    private setResolved(res: T, forceRestartExpiration = false): T {
         const prepared = this._prepareValue(res);
 
         this._transaction(() => {
             this.settle('resolved');
-            this.clearError(); // clear error on successful set
+            this.clearError();
             this._instance.value = prepared;
 
             // refresh promise so it won't keep old callbacks, resolved with the freshest value
             this._promise = Promise.resolve(prepared);
             this._activeFactoryPromise = null;
 
-            this._expireTracker?.restart();
+            if (forceRestartExpiration || !this._expireTracker.isForceExpired) {
+                this._expireTracker.restart();
+            }
         });
 
         return prepared;
@@ -288,7 +324,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         const settled = this._settled.value;
         if (settled === null) {
             nextState = 'loading';
-        } else if (this._expireTracker?.isExpired) {
+        } else if (this._expireTracker.isExpired) {
             nextState = passivePendingKind(settled === 'resolved');
         }
 
@@ -304,6 +340,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             // Case when refreshing already is happening - we have an active promise
             return this._activeFactoryPromise;
         }
+
+        // Restarting at invocation paces retries: a failed attempt still starts a lifetime.
+        this._expireTracker.restart();
 
         let factoryResult: Promise<T> | T;
         try {
@@ -321,7 +360,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
                 }
 
                 if (this._activeFactoryPromise === factoryPromise) {
-                    return this.setInstance(res);
+                    return this.setResolved(res);
                 }
 
                 // Stale promise - return the latest active promise instead

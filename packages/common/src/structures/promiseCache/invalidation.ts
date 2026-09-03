@@ -33,3 +33,54 @@ export function isInvalidated<T>(
 
     return false;
 }
+
+
+/**
+ * Resolve times by key, for a cache to decide expiry against, plus which keys are force-expired
+ * independently of their resolve time.
+ */
+export class ResolveTimestamps {
+    protected readonly _map = new Map<string, number>();
+    protected readonly _forced = new Set<string>();
+
+    /** The key's resolve time, or `undefined` if it was never stamped. Forced staleness does not change it. */
+    get(key: string): number | undefined {
+        return this._map.get(key);
+    }
+
+    has(key: string): boolean {
+        return this._map.has(key) || this._forced.has(key);
+    }
+
+    /**
+     * Begins a fresh lifetime for the key at the current time.
+     * Leaves forced staleness untouched, so a mark set while a fetch is in flight survives that fetch's own stamp.
+     */
+    stamp(key: string) {
+        this._map.set(key, Date.now());
+    }
+
+    /** Marks the key stale independently of its resolve time. */
+    forceExpire(key: string) {
+        this._forced.add(key);
+    }
+
+    isForcedExpired(key: string): boolean {
+        return this._forced.has(key);
+    }
+
+    /** Drops forced staleness. Works on a key that was never stamped, including an errored one. */
+    consumeForcedExpiry(key: string) {
+        this._forced.delete(key);
+    }
+
+    delete(key: string) {
+        this._map.delete(key);
+        this._forced.delete(key);
+    }
+
+    clear() {
+        this._map.clear();
+        this._forced.clear();
+    }
+}

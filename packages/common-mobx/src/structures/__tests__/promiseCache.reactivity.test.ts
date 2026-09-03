@@ -27,7 +27,7 @@ describe('PromiseCache observable', () => {
             expect(cache.getCurrent('a', false)).toBe(42);
             expect(cache.promisesCount).toBe(0);
 
-            cache.invalidate('a');
+            cache.delete('a');
 
             stop();
             expect(warnSpy).not.toHaveBeenCalled();

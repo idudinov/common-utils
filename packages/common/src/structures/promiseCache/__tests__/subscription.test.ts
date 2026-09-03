@@ -649,7 +649,7 @@ describe('PromiseCache subscription extension', () => {
     });
 
     describe('teardown mid-fetch settles the pending fetch (R2)', () => {
-        test('sanitize() purging an expired key mid-refresh settles refresh() and drops loadingCount, ignoring the late emission', async () => {
+        test('delete() purging an expired key mid-refresh settles refresh() and drops loadingCount, ignoring the late emission', async () => {
             vi.useFakeTimers();
             try {
                 let call = 0;
@@ -675,7 +675,7 @@ describe('PromiseCache subscription extension', () => {
                 const refreshP = cache.refresh('a').then(() => { refreshSettled = true; });
                 expect(cache.loadingCount).toBe(1);
 
-                cache.sanitize(); // purges expired 'a' mid-refetch, tears down the new entry
+                cache.delete('a'); // purges 'a' mid-refetch, tears down the new entry
 
                 lateEmits[0]?.('v2'); // the source finally emits — the entry is already cancelled
 

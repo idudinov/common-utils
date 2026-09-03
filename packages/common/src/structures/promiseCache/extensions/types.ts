@@ -1,12 +1,21 @@
-import type { IControllablePromiseCache, PromiseCacheFetcher } from '../types.js';
+import type {
+    FetchRequestHandler,
+    IControllablePromiseCache,
+    PromiseCacheEvent,
+    PromiseCacheRemovedEvent,
+    PromiseCacheStoredEvent,
+} from '../types.js';
 
 /**
- * Cross-cutting behavior pluggable into a {@link PromiseCache} via `extend()`, mirroring
- * {@link ILazyPromiseExtension} at the collection level.
+ * Cross-cutting behavior pluggable into a promise cache via `extend()`, mirroring
+ * `ILazyPromiseExtension` at the collection level.
  */
 export interface IPromiseCacheExtension<T, TKey extends string = string, TExtShape extends object = object> {
-    /** Wraps or replaces the fetcher (retry, read-through cache, batching, ...). */
-    overrideFetcher?: (original: PromiseCacheFetcher<T, TKey>, target: IControllablePromiseCache<T, TKey, T | undefined> & TExtShape) => PromiseCacheFetcher<T, TKey>;
+    /**
+     * Wraps or replaces the fetcher; wraps chain newest-outermost.
+     * A request passed to `original` may be rebuilt, but must keep the incoming `context` by reference.
+     */
+    overrideFetcher?: (original: FetchRequestHandler<T, TKey>, target: IControllablePromiseCache<T, TKey, T | undefined> & TExtShape) => FetchRequestHandler<T, TKey>;
 
     /**
      * Augments the instance with extra properties/methods.
@@ -15,18 +24,14 @@ export interface IPromiseCacheExtension<T, TKey extends string = string, TExtSha
      */
     extendShape?: (previous: IControllablePromiseCache<T, TKey, T | undefined>) => IControllablePromiseCache<T, TKey, T | undefined> & TExtShape;
 
-    /** Fires after every successful store — fetch result and manual `set()` — with the stored (prepared) value. */
-    onStored?: (key: TKey, value: T, target: IControllablePromiseCache<T, TKey, T | undefined>) => void;
+    /** Direct handler of the cache's {@link PromiseCacheStoredEvent}. */
+    onStored?: (e: PromiseCacheStoredEvent<T, TKey>) => void;
 
-    /**
-     * Fires after every per-key removal: `delete()` — including extension-driven ones such as
-     * eviction — and `sanitize()`. Does not fire for `clear()`; use `onCleared`. Use it for per-key
-     * resource cleanup.
-     */
-    onRemoved?: (key: TKey, target: IControllablePromiseCache<T, TKey, T | undefined>) => void;
+    /** Direct handler of the cache's {@link PromiseCacheRemovedEvent}. */
+    onRemoved?: (e: PromiseCacheRemovedEvent<T, TKey>) => void;
 
-    /** Fires after `clear()` resets the cache. */
-    onCleared?: (target: IControllablePromiseCache<T, TKey, T | undefined>) => void;
+    /** Direct handler of the cache's {@link PromiseCacheEvent}. */
+    onCleared?: (e: PromiseCacheEvent<T, TKey>) => void;
 
     /** Releases resources held by the extension. Called by `dispose()`, newest extension first. */
     dispose?: () => void;

@@ -7,13 +7,13 @@ export interface IRetryExtension<T, TKey extends string = string> extends IPromi
 }
 
 /**
- * Wraps the fetcher of a {@link PromiseCache} (via `extend()`) with retry logic.
+ * Wraps the fetcher of a `PromiseCache` (via `extend()`) with retry logic.
  *
  * @param config Retry configuration, see {@link RetryConfig}. Falls back to defaults if omitted.
  */
 export function createRetryExtension<T, TKey extends string = string>(config?: RetryConfig): IRetryExtension<T, TKey> {
     return {
-        overrideFetcher: original => (key, refreshing) => withRetry(() => original(key, refreshing), config),
+        overrideFetcher: original => request => withRetry(async () => original(request), config),
         retryConfig: config,
     };
 }

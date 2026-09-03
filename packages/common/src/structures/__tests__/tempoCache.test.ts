@@ -4,6 +4,18 @@ import { createLazy } from '../../lazy/light.js';
 import { LazyPromise } from '../../lazy/promise.js';
 
 describe('TempoCache', () => {
+    it('first access calls the factory (tracker starts expired)', () => {
+        const factory = vi.fn(() => 'value');
+
+        const example = new TempoCache(factory, 99);
+
+        expect(example.tracker.isExpired).toBe(true);
+        expect(factory).not.toHaveBeenCalled();
+
+        expect(example.current).toBe('value');
+        expect(factory).toHaveBeenCalledTimes(1);
+    });
+
     it('just works', async () => {
         let incrementor = 1;
 

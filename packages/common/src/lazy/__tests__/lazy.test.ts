@@ -55,6 +55,36 @@ describe('Lazy', () => {
         expect(incrementor).toBe(2);
     });
 
+    test('expireTracker getter: forces a re-create on the next read via expire()', () => {
+        let incrementor = 0;
+        const l = new Lazy(() => ++incrementor);
+
+        expect(l.expireTracker).toBeDefined();
+        expect(l.expireTracker.isExpired).toBeFalse();
+
+        expect(l.value).toBe(1);
+        expect(l.expireTracker.isExpired).toBeFalse(); // default tracker never expires on its own
+
+        l.expireTracker.expire();
+        expect(l.expireTracker.isExpired).toBeTrue();
+
+        expect(l.value).toBe(2);
+        expect(l.expireTracker.isExpired).toBeFalse(); // restarted by the re-create
+    });
+
+    test('withExpire(N) on an already-loaded value restarts the tracker; the next read re-creates once it elapses', () => {
+        let incrementor = 0;
+        const l = new Lazy(() => ++incrementor);
+
+        expect(l.value).toBe(1);
+
+        l.withExpire(10);
+        expect(l.value).toBe(1); // no re-create yet — the tracker just restarted
+
+        vi.advanceTimersByTime(11);
+        expect(l.value).toBe(2);
+    });
+
     test('disposes', () => {
         {
             const l = new Lazy(() => 42);

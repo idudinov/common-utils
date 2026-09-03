@@ -21,17 +21,17 @@ describe('PromiseCache extensions', () => {
             return key;
         })
             .extend({
-                overrideFetcher: original => async (key, refreshing) => {
+                overrideFetcher: original => async request => {
                     calls.push('ext1:before');
-                    const res = await original(key, refreshing);
+                    const res = await original(request);
                     calls.push('ext1:after');
                     return res;
                 },
             })
             .extend({
-                overrideFetcher: original => async (key, refreshing) => {
+                overrideFetcher: original => async request => {
                     calls.push('ext2:before');
-                    const res = await original(key, refreshing);
+                    const res = await original(request);
                     calls.push('ext2:after');
                     return res;
                 },
@@ -63,10 +63,11 @@ describe('PromiseCache extensions', () => {
         ).extend({ onStored });
 
         await expect(cache.get('a')).resolves.toBe('A!');
-        expect(onStored).toHaveBeenNthCalledWith(1, 'a', 'A!', cache);
+        expect(onStored).toHaveBeenNthCalledWith(1, expect.objectContaining({ key: 'a', value: 'A!', target: cache }));
 
         cache.set('b', 'raw');
-        expect(onStored).toHaveBeenNthCalledWith(2, 'b', 'raw!', cache);
+        expect(onStored).toHaveBeenNthCalledWith(2, expect.objectContaining({ key: 'b', value: 'raw!', target: cache }));
+        expect(onStored.mock.calls[1][0].context).toBeUndefined();
 
         expect(onStored).toHaveBeenCalledTimes(2);
     });
@@ -81,13 +82,13 @@ describe('PromiseCache extensions', () => {
         await cache.get('a');
         cache.delete('a');
         expect(onRemoved).toHaveBeenCalledTimes(1);
-        expect(onRemoved).toHaveBeenCalledWith('a', cache);
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'a', target: cache }));
 
         await cache.get('b');
         await vi.advanceTimersByTimeAsync(20);
         cache.sanitize();
         expect(onRemoved).toHaveBeenCalledTimes(2);
-        expect(onRemoved).toHaveBeenCalledWith('b', cache);
+        expect(onRemoved).toHaveBeenCalledWith(expect.objectContaining({ key: 'b', target: cache }));
 
         await cache.get('c');
         cache.clear();
@@ -103,7 +104,7 @@ describe('PromiseCache extensions', () => {
         cache.clear();
 
         expect(onCleared).toHaveBeenCalledTimes(1);
-        expect(onCleared).toHaveBeenCalledWith(cache);
+        expect(onCleared).toHaveBeenCalledWith(expect.objectContaining({ target: cache }));
         expect(cache.hasKey('a')).toBe(false);
     });
 
@@ -133,7 +134,7 @@ describe('PromiseCache extensions', () => {
 
         await expect(cache.get('a')).resolves.toBe('a');
 
-        expect(good).toHaveBeenCalledWith('a', 'a', cache);
+        expect(good).toHaveBeenCalledWith(expect.objectContaining({ key: 'a', value: 'a', target: cache }));
         expect(cache.getCurrent('a', false)).toBe('a');
         expect(error).toHaveBeenCalled();
     });

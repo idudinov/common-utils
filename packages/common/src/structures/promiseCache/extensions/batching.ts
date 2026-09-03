@@ -6,8 +6,7 @@ import type { IPromiseCacheExtension } from './types.js';
  * Falls back to the original fetcher for a key when the batch call fails, or resolves without
  * a result at that key's index — `refreshing` is only forwarded on this fallback path.
  *
- * @param onBatchError Called once per failed batch with that batch's full key list and the error.
- * When omitted, batch failures degrade silently to per-key fetches.
+ * @param onBatchError Called once per failed batch with that batch's full key list and the error. When omitted, batch failures degrade silently to per-key fetches.
  */
 export function createBatchingExtension<T, TKey extends string = string>(
     batchFetcher: (keys: TKey[]) => Promise<T[]>,
@@ -33,10 +32,10 @@ export function createBatchingExtension<T, TKey extends string = string>(
         overrideFetcher: original => {
             processor = new DebounceProcessor<TKey, T[]>(guardedBatchFetcher, delay);
 
-            return async (key, refreshing) => {
-                const res = await processor!.push(key).catch(() => null);
+            return async request => {
+                const res = await processor!.push(request.key).catch(() => null);
                 if (!res?.result || res.result[res.index] === undefined) {
-                    return original(key, refreshing);
+                    return original(request);
                 }
                 return res.result[res.index];
             };

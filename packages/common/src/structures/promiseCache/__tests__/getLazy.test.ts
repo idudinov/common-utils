@@ -1,6 +1,26 @@
 
 import { PromiseCache } from '../index.js';
+import { PromiseCacheLazyHandle } from '../lazyHandle.js';
 import { vi, beforeEach, afterEach, describe, test } from 'vitest';
+
+class TrackingHandle<T, TInitial extends T | undefined = undefined> extends PromiseCacheLazyHandle<T, TInitial> {
+    valueReads = 0;
+
+    override get value() {
+        this.valueReads++;
+        return super.value;
+    }
+}
+
+class TrackingCache<T> extends PromiseCache<T> {
+    lastHandle?: TrackingHandle<T>;
+
+    protected override createLazyHandle(key: string) {
+        const handle = new TrackingHandle<T>(this, key);
+        this.lastHandle = handle;
+        return handle;
+    }
+}
 
 describe('PromiseCache getLazy', () => {
 
@@ -130,6 +150,28 @@ describe('PromiseCache getLazy', () => {
 
         await vi.advanceTimersByTimeAsync(60);
         expect(lazy.isLoading).toBe(false); // expiry alone doesn't start a fetch; stale value still served
+    });
+
+    describe('createLazyHandle override', () => {
+        test('getLazy without a strategy returns the subclass handle', async () => {
+            const cache = new TrackingCache<string>(async id => `value-${id}`);
+
+            const lazy = cache.getLazy('a');
+            expect(lazy).toBe(cache.lastHandle);
+
+            void lazy.value;
+            expect(cache.lastHandle!.valueReads).toBe(1);
+        });
+
+        test('getLazy with a strategy wraps the subclass handle, not a base one', async () => {
+            const cache = new TrackingCache<string>(async id => `value-${id}`);
+
+            const lazy = cache.getLazy('a', { loading: false });
+            expect(lazy).not.toBe(cache.lastHandle);
+
+            void lazy.value;
+            expect(cache.lastHandle!.valueReads).toBe(1);
+        });
     });
 
     describe('counts', () => {
