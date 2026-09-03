@@ -3,21 +3,25 @@ import type { IControllablePromiseCache, PromiseCacheFetcher } from '../types.js
 import type { IPromiseCacheExtension } from './types.js';
 
 /**
- * A live data source for one cache key: `emit` delivers values until the returned/resolved disposer
- * is called. Must emit at least once or reject/throw — one that never does leaves the fetch pending.
+ * A live data source for one cache key: `emit` delivers values until the returned/resolved disposer is called.
+ * Must emit at least once or reject/throw — one that never does leaves the fetch pending.
  */
 export type SubscriptionSource<T, TKey extends string = string> =
     (key: TKey, emit: (value: T) => void) => DisposeFunction | Promise<DisposeFunction>;
 
 /**
- * Subscription lifetime after the first emission: `'off'` unsubscribes right away (one-shot fetch),
- * `'forever'` keeps it until delete/clear/dispose, `{ ttlMs }` keeps it for `ttlMs` since the
- * last emission, then unsubscribes and deletes the key.
+ * Subscription lifetime after the first emission:
+ * - `'off'` unsubscribes right away (one-shot fetch)
+ * - `'forever'` keeps it until delete/clear/dispose
+ * - `{ ttlMs }` keeps it for `ttlMs` since the last emission, then unsubscribes and deletes the key
  */
 export type SubscriptionPolicy = 'off' | 'forever' | { ttlMs: number };
 
 export interface SubscriptionExtensionOptions<T, TKey extends string = string> {
-    /** Defaults to `'forever'`. A function is resolved once per `fetch()` call, for that key. */
+    /**
+     * Defaults to `'forever'`.
+     * A function is resolved once per `fetch()` call, for that key.
+     */
     policy?: SubscriptionPolicy | ((key: TKey) => SubscriptionPolicy);
 
     /** Merges an update emission into the current value, instead of replacing it wholesale. */
@@ -106,11 +110,10 @@ class SubscriptionExtensionImpl<T, TKey extends string = string> {
     }
 
     /**
-     * Schedules a single microtask drain of `entry.buffer`, in causal order, guarded against a
-     * torn-down or superseded entry. Stays `drainScheduled` for the whole drain, including while an
-     * emission arrives re-entrantly (e.g. from an `onStored` observer applyUpdate's `cache.set()`
-     * synchronously triggers) — that emission then queues onto the live buffer instead of jumping
-     * ahead of the remainder still waiting to drain.
+     * Schedules a single microtask drain of `entry.buffer`, in causal order, guarded against a torn-down or superseded entry.
+     *
+     * Stays `drainScheduled` for the whole drain, including while an emission arrives re-entrantly.
+     * Such an emission queues onto the live buffer instead of jumping ahead of the remainder still waiting to drain.
      */
     private scheduleDrain(key: TKey, entry: Entry<T>) {
         entry.drainScheduled = true;
@@ -289,12 +292,13 @@ class SubscriptionExtensionImpl<T, TKey extends string = string> {
 }
 
 /**
- * Adapts a live {@link SubscriptionSource} into a {@link PromiseCache} extension: the first emission
- * resolves the fetch, later ones update the cached value, and the extension solely owns each key's
- * subscription.
+ * Adapts a live {@link SubscriptionSource} into a {@link PromiseCache} extension.
  *
- * Replaces the cache's fetcher instead of wrapping it, and holds that cache's subscription state —
- * create one instance per cache, and apply it via `extend()` before the first fetch.
+ * - the first emission resolves the fetch, later ones update the cached value
+ * - each key's subscription is owned solely by the extension
+ * - the cache's fetcher is replaced rather than wrapped, and this instance holds that cache's subscription state
+ *
+ * Create one instance per cache, and apply it via `extend()` before the first fetch.
  */
 export function createSubscriptionExtension<T, TKey extends string = string>(
     subscribe: SubscriptionSource<T, TKey>,

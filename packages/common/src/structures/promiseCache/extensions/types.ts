@@ -24,13 +24,13 @@ export interface IPromiseCacheExtension<T, TKey extends string = string, TExtSha
      */
     extendShape?: (previous: IControllablePromiseCache<T, TKey, T | undefined>) => IControllablePromiseCache<T, TKey, T | undefined> & TExtShape;
 
-    /** Direct handler of the cache's `onStored` event. */
+    /** Direct handler of the cache's {@link PromiseCacheStoredEvent}. */
     onStored?: (e: PromiseCacheStoredEvent<T, TKey>) => void;
 
-    /** Direct handler of the cache's `onRemoved` event. */
+    /** Direct handler of the cache's {@link PromiseCacheRemovedEvent}. */
     onRemoved?: (e: PromiseCacheRemovedEvent<T, TKey>) => void;
 
-    /** Direct handler of the cache's `onCleared` event. */
+    /** Direct handler of the cache's {@link PromiseCacheEvent}. */
     onCleared?: (e: PromiseCacheEvent<T, TKey>) => void;
 
     /** Releases resources held by the extension. Called by `dispose()`, newest extension first. */

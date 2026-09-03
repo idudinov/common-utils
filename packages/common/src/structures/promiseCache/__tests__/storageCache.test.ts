@@ -265,23 +265,53 @@ describe('PromiseCache storage cache extension', () => {
         expect(fetcher).toHaveBeenCalledTimes(2);
     });
 
-    // Known limitation: a force-expired key that never held a cached value looks cold again, so the
-    // gate reads storage instead of calling the fetcher; refresh() is the workaround.
-    test.fails('expire() before the first cached value forces a fetcher call', async () => {
+    test('expire() during a first-ever fetch sends the next read to the fetcher, not to storage', async () => {
         const storage = new FakeStorage<string>();
 
         const fetcher = vi.fn(async (key: string) => delayedValue(10, `fetched-${key}`));
         const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage));
 
         const p = cache.get('a'); // first-ever fetch for this key, still in flight
-        cache.expire('a'); // abandons it — its result is discarded, never stored
+        cache.expire('a'); // marks it stale; the in-flight fetch is unaffected
 
         await vi.advanceTimersByTimeAsync(10);
-        await p;
+        await expect(p).resolves.toBe('fetched-a');
+        expect(fetcher).toHaveBeenCalledTimes(1);
 
-        storage.map.set('a', 'from-storage'); // shows up out-of-band before the retry
+        storage.map.set('a', 'from-storage'); // shows up out-of-band after the fetch stored its result
 
-        await cache.get('a');
+        const p2 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        await expect(p2).resolves.toBe('fetched-a');
         expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    test('a wrapper above the storage extension that retries a storage hit still writes the network result back', async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher)
+            .extend(createStorageCacheExtension(storage))
+            .extend({
+                overrideFetcher: original => request => {
+                    return Promise.resolve(original(request)).then(value => {
+                        if (value === 'from-storage') {
+                            // the storage hit didn't validate — force a network fetch within the same attempt
+                            return original({ ...request, refreshing: true });
+                        }
+                        return value;
+                    });
+                },
+            });
+
+        const stored = vi.fn();
+        cache.onStored.on(stored);
+
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(stored).toHaveBeenCalledTimes(1);
+        expect(storage.map.get('a')).toBe('fetched-a'); // network result written back, not skipped as a storage echo
     });
 });

@@ -5,7 +5,8 @@ import type { ILazy } from './types.js';
 
 /**
  * Synchronous lazy-loading container that initializes a value on first access.
- * The value is cached until reset or expired. Supports custom disposal and cache expiration.
+ * The value is cached until reset or expired.
+ * Supports custom disposal and cache expiration.
  */
 export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
 
@@ -26,7 +27,10 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
     public get currentValue() { return this._instance; }
     public get error(): unknown { return this._error; }
 
-    /** The expiration tracker; once it expires, the next access resets and re-creates the value. Defaults to a never-expiring owned tracker. */
+    /**
+     * The expiration tracker; once it expires, the next access resets and re-creates the value.
+     * Defaults to a never-expiring owned tracker.
+     */
     public get expireTracker(): IExpireTracker {
         return this._expireTracker;
     }
@@ -65,7 +69,7 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
         return this;
     }
 
-    /** Eagerly loads the value without accessing it. Useful for preloading. */
+    /** Eagerly loads the value without accessing it. */
     public prewarm() {
         this.ensureInstance();
         return this;

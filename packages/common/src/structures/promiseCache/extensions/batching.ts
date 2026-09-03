@@ -6,8 +6,7 @@ import type { IPromiseCacheExtension } from './types.js';
  * Falls back to the original fetcher for a key when the batch call fails, or resolves without
  * a result at that key's index — `refreshing` is only forwarded on this fallback path.
  *
- * @param onBatchError Called once per failed batch with that batch's full key list and the error.
- * When omitted, batch failures degrade silently to per-key fetches.
+ * @param onBatchError Called once per failed batch with that batch's full key list and the error. When omitted, batch failures degrade silently to per-key fetches.
  */
 export function createBatchingExtension<T, TKey extends string = string>(
     batchFetcher: (keys: TKey[]) => Promise<T[]>,

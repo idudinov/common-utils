@@ -36,52 +36,51 @@ export function isInvalidated<T>(
 
 
 /**
- * Resolve times by key, for a cache to decide expiry against. Forced staleness is a flag on an
- * entry rather than a second map, encoded in the stored sign; reads decode, so the encoding is
- * not observable from outside.
+ * Resolve times by key, for a cache to decide expiry against, plus which keys are force-expired
+ * independently of their resolve time.
  */
 export class ResolveTimestamps {
     protected readonly _map = new Map<string, number>();
+    protected readonly _forced = new Set<string>();
 
     /** The key's resolve time, or `undefined` if it was never stamped. Forced staleness does not change it. */
     get(key: string): number | undefined {
-        const stored = this._map.get(key);
-        return stored == null ? undefined : Math.abs(stored);
+        return this._map.get(key);
     }
 
     has(key: string): boolean {
-        return this._map.has(key);
+        return this._map.has(key) || this._forced.has(key);
     }
 
-    /** Begins a fresh lifetime for the key at the current time, dropping any forced staleness. */
+    /**
+     * Begins a fresh lifetime for the key at the current time.
+     * Leaves forced staleness untouched, so a mark set while a fetch is in flight survives that fetch's own stamp.
+     */
     stamp(key: string) {
         this._map.set(key, Date.now());
     }
 
-    /** Marks the key stale whatever its resolve time, keeping that time for {@link consumeForcedExpiry}. */
+    /** Marks the key stale independently of its resolve time. */
     forceExpire(key: string) {
-        this._map.set(key, -Math.abs(this._map.get(key) ?? Date.now()));
+        this._forced.add(key);
     }
 
     isForcedExpired(key: string): boolean {
-        const stored = this._map.get(key);
-        // `Object.is` covers `-0`, which a `< 0` test misses — a key stamped at `Date.now() === 0` encodes to `-0`
-        return stored != null && (stored < 0 || Object.is(stored, -0));
+        return this._forced.has(key);
     }
 
-    /** Drops forced staleness, restoring the resolve time it was set from. No-op for an unstamped key. */
+    /** Drops forced staleness. Works on a key that was never stamped, including an errored one. */
     consumeForcedExpiry(key: string) {
-        const stored = this._map.get(key);
-        if (stored != null) {
-            this._map.set(key, Math.abs(stored));
-        }
+        this._forced.delete(key);
     }
 
     delete(key: string) {
         this._map.delete(key);
+        this._forced.delete(key);
     }
 
     clear() {
         this._map.clear();
+        this._forced.clear();
     }
 }

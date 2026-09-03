@@ -2,8 +2,8 @@ import type { IControllablePromiseCache } from '../types.js';
 import type { IPromiseCacheExtension } from './types.js';
 
 /**
- * Caps the cache at `maxItems`, evicting on every store: invalid entries first, then the oldest
- * by insertion order. In-flight keys and the key that was just stored are never evicted.
+ * Caps the cache at `maxItems`, evicting on every store: invalid entries first, then the oldest by insertion order.
+ * In-flight keys and the key that was just stored are never evicted.
  */
 export function createEvictionExtension<T, TKey extends string = string>(
     config: { maxItems: number },

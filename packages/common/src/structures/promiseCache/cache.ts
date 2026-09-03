@@ -1,6 +1,6 @@
 import { combineDisposers, type IDisposable } from '../../functions/disposer.js';
 import { deriveIsLoading, passivePendingKind, refreshPendingKind, viewLoadingState } from '../../lazy/loadingState.js';
-import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+import type { ILazyPromise, LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import { Loggable } from '../../logger/loggable.js';
 import type { ILogger } from '../../logger/types.js';
 import { Model } from '../../models/Model.js';
@@ -37,14 +37,14 @@ const defaultStorageProvider: PromiseCacheStorageProvider = {
  * Caches items by a string key, resolved by an async fetcher (`Promise`).
  *
  * Supports:
- *  - direct manual cache manipulation.
- *  - auto-invalidation of cached items (time-based, callback-based).
- *  - error tracking per key.
- *  - extension via `extend()` for batching, eviction, retry, and other cross-cutting behavior.
-*/
+ * - direct manual cache manipulation
+ * - auto-invalidation of cached items, time-based or callback-based
+ * - error tracking per key
+ * - extension via `extend()` for batching, eviction, retry, and other cross-cutting behavior
+ */
 export class PromiseCache<T, TKey extends string = string, TInitial extends T | undefined = undefined> extends Loggable implements IControllablePromiseCache<T, TKey, TInitial>, IDisposable {
 
-    // Each concern lives in its own map so that reactive storage subscribes per concern:
+    // Each concern lives in its own map, so a consumer watching one is not triggered by the others:
     // writing to one (e.g. a resolved value) does not invalidate reads of another (e.g. loading state).
 
     /** Stores resolved items in map by key. */
@@ -59,7 +59,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores items Promises state (if still loading) in map by key. */
     protected readonly _fetchCache: IMapModel<string, Promise<T | TInitial>>;
 
-    /** Stores last errors by key. Observable-friendly via IMapModel. */
+    /** Stores last errors by key. */
     protected readonly _errorsMap: IMapModel<string, unknown>;
 
     /** Stores items resolve timestamps (for expiration) by key. */
@@ -79,7 +79,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     private _fetcher: FetchRequestHandler<T, TKey>;
 
-    /** Contexts issued to fetch attempts, checked by {@link _assertFetchContext}. */
+    /** Contexts issued to fetch attempts. */
     private readonly _issuedContexts = new WeakSet<FetchContext>();
 
     private readonly _onStored = new Event<PromiseCacheStoredEvent<T, TKey>>();
@@ -94,7 +94,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Creates an instance of PromiseCache.
      * @param fetcher Function to fetch data by key.
-     * @param options Storage provider and value preparation hook. See {@link PromiseCacheOptions}.
+     * @param options Storage provider and value preparation hook, see {@link PromiseCacheOptions}.
      */
     constructor(
         fetcher: PromiseCacheFetcher<T, TKey>,
@@ -120,8 +120,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     /**
      * Configures the per-pending-state `isLoading` override; missing keys fall back to {@link DEFAULT_LOADING_STATE}.
-     * Applies to every key. The strategy is stored as-is (not copied), so getter-based fields are
-     * re-evaluated on each read. Subsequent calls replace the previous strategy, not merge with it.
+     * Applies to every key.
+     * The strategy is stored as-is, not copied, so getter-based fields are re-evaluated on each read.
+     * Subsequent calls replace the previous strategy rather than merging with it.
      */
     useLoadingState(strategy: LoadingStateStrategy): this {
         this._loadingStrategy.value = strategy;
@@ -134,7 +135,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * The config object is stored as-is (not destructured), so getter-based fields will be re-evaluated on each access.
      * This allows consumers to provide dynamic invalidation policies.
      *
-     * @param config The invalidation configuration. See {@link InvalidationConfig} for details.
+     * @param config The invalidation configuration, see {@link InvalidationConfig}.
      */
     useInvalidation(config: InvalidationConfig<T> | null) {
         this._invalidationConfig = config;
@@ -157,8 +158,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * Accepts either a static value or a per-key factory function `(key: TKey) => TInitial`.
      * The value is **not** stored in the cache — it's a synthetic default (same as `LazyPromise`'s initial value).
      *
-     * **Note:** Functions are always interpreted as factories. If `T` is a function type,
-     * wrap it: `useInitialValue((key) => myFallbackFn)`.
+     * **Note:** Functions are always interpreted as factories.
+     * If `T` is a function type, wrap it: `useInitialValue((key) => myFallbackFn)`.
      *
      * @param initial A value (non-function) or `(key: TKey) => TInitial` factory.
      * @returns `this` for chaining.
@@ -185,9 +186,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     // --- Extensions ---
 
     /**
-     * Extends this instance with additional functionality via in-place mutation, per the given
-     * {@link IPromiseCacheExtension}. Extensions chain: calling `extend()` again wraps on top of
-     * the previous one, in the order they were applied.
+     * Extends this instance with additional functionality via in-place mutation, per the given {@link IPromiseCacheExtension}.
+     * Extensions chain: calling `extend()` again wraps on top of the previous one, in the order they were applied.
      *
      * @param extension Extension configuration.
      * @returns The same instance, typed with the extension's shape additions if any.
@@ -245,8 +245,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Returns the number of items currently being fetched, including background refreshes.
      *
-     * Counts every in-flight fetch, regardless of the configured {@link LoadingStateStrategy} —
-     * suitable for a global "something is loading" indicator.
+     * Counts every in-flight fetch, regardless of the configured {@link LoadingStateStrategy} — suitable for a global "something is loading" indicator.
      */
     public get loadingCount(): number { return this._loadingCount.value; }
 
@@ -271,7 +270,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return `[PromiseCache:${name || '?'}]`;
     }
 
-    /** Forwards the resolved logger to the extension hook events, so their handler failures log through it too. */
+    /** Forwards the resolved logger to the cache's own events, so a handler's failure logs through it too. */
     override setLogger(logger: Getter<Nullable<ILogger>>): this {
         super.setLogger(logger);
         this._onStored.setLogger(this.logger);
@@ -288,12 +287,22 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return strategy ? viewLoadingState(handle, strategy) : handle;
     }
 
-    /** Constructs the {@link ILazyPromise} handle returned by {@link getLazy}. Override to supply a custom handle implementation. */
+    /** Constructs the {@link ILazyPromise} handle returned by {@link getLazy}. */
     protected createLazyHandle(key: TKey): ILazyPromise<T, TInitial> {
         return new PromiseCacheLazyHandle(this, key);
     }
 
-    getIsLoading(key: TKey): boolean | null {
+    /**
+     * The loading state of an item; see {@link LoadingStates}.
+     * Does not trigger a fetch.
+     *
+     * - while a fetch is in flight, the value comes from the configured strategy, derived at read time, so a strategy change applies to fetches already running
+     * - `false` once settled
+     * - `null` if never started, or after an explicit `delete()`
+     *
+     * See {@link useLoadingState} and {@link LoadingStateStrategy}.
+     */
+    getIsLoading(key: TKey): LoadingStates {
         const res = this._itemsStatus.get(key);
         if (res) {
             return deriveIsLoading(res, this._loadingStrategy.value);
@@ -346,8 +355,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return existingPromise;
         }
 
-        // If a fetch is in progress or already completed (with error) and not invalidated,
-        // don't start a new fetch — error is "sticky". Use refresh() or delete() to retry.
+        // If a fetch is in progress or already completed (with error) and not invalidated, don't start a new fetch — error is "sticky".
+        // Use refresh() or delete() to retry.
         if (this._itemsStatus.has(key) && !isInvalidated) {
             const status = this._itemsStatus.get(key);
             this.logger.log(key, 'get: fetch already', status ? 'in progress' : 'completed (error)', '— returning initial value');
@@ -394,6 +403,13 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     // --- Public API: mutation ---
 
+    /**
+     * Removes all per-key state for the specified key.
+     *
+     * Clears the cached item, in-flight promise, loading status, last error, and resolve timestamp — the next read starts a fresh fetch.
+     *
+     * @returns Whether any state existed for the key.
+     */
     delete(key: TKey): boolean {
         const hadState = this._hasAnyKeyState(key);
 
@@ -408,21 +424,35 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return hadState;
     }
 
+    /**
+     * Marks the key's cached value stale without removing it.
+     *
+     * - The next read starts a revalidation and keeps serving the current value until it settles
+     * - Stores no value and fires no events
+     * - A fetch already in flight still stores its result, but the mark outlives it, so the next read revalidates anyway
+     * - The next fetch consumes the mark, so a failed revalidation does not retry on every read
+     * - No-op for a key with no per-key state
+     *
+     * A fetch that resolves after this call started before it, so its result cannot reflect
+     * whatever prompted the call — it is served, but it does not satisfy the mark.
+     */
     expire(key: TKey): void {
         this._assertKey(key);
         if (!this.hasKey(key)) {
             return;
         }
-        this._transaction(() => {
-            this._timestamps.forceExpire(key);
-            if (this._activeFetchPromises.has(key)) {
-                this._activeFetchPromises.delete(key);
-                this._fetchCache.delete(key);
-                this.setStatus(key, false);
-            }
-        });
+        this._timestamps.forceExpire(key);
     }
 
+    /**
+     * Injects a value into the cache for the specified key, as if it had been fetched.
+     *
+     * On store:
+     * - runs `value` through the configured `prepareValue` hook first
+     * - clears any previous error and any forced-expiry mark left by `expire()`
+     * - cancels any in-flight fetch for this key
+     * - stamps the value with the current time, for time-based invalidation
+     */
     set(key: TKey, value: T) {
         this._assertKey(key);
 
@@ -433,6 +463,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this.setStatus(key, false);
             this._itemsCache.set(key, prepared);
             this._timestamps.stamp(key);
+            this._timestamps.consumeForcedExpiry(key);
             this._errorsMap.delete(key);
             this._activeFetchPromises.delete(key);
         });
@@ -443,10 +474,10 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Iterates over all cached items and removes those that are invalid (expired).
      *
-     * @returns The number of keys announced as removed. A key re-added by its own `onRemoved`
-     * handler is still counted — the presence check runs before that handler fires. Only a key
-     * re-added by an earlier key's handler in the same pass, before its own announcement turn, is
-     * left uncounted.
+     * A key re-added by its own `onRemoved` handler is still counted — the presence check runs before that handler fires.
+     * Only a key re-added by an earlier key's handler in the same pass, before its own announcement turn, is left uncounted.
+     *
+     * @returns The number of keys announced as removed.
      */
     sanitize(): number {
         const keysToRemove: TKey[] = [];
@@ -606,11 +637,12 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Unified fetch method with "latest wins" semantics.
      *
-     * - Tracks the active factory promise per key via `_activeFetchPromises`.
-     * - If superseded by a newer fetch, delegates to the newer promise.
-     * - On error, preserves the stale cached value.
-     * - The error is recorded only once classification is known — a superseded/cancelled fetch's
-     *   error is discarded rather than overwriting a newer fetch's already-settled state.
+     * Resolves ties by:
+     * - tracking the active factory promise per key via `_activeFetchPromises`
+     * - delegating to the newer promise when superseded by a newer fetch
+     * - preserving the stale cached value on error
+     *
+     * The error is recorded only once classification is known — a superseded or cancelled fetch's error is discarded rather than overwriting a newer fetch's already-settled state.
      *
      * @param key The cache key.
      * @returns A promise resolving to the fetched/refreshed value, or the stale value on error.
@@ -674,8 +706,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                     : this._getCachedOrInitial(key);
             }
 
-            // The active promise was already removed elsewhere — per-key bookkeeping is
-            // already handled; only the loading count needs decrementing.
+            // The active promise was removed elsewhere already; per-key bookkeeping is done,
+            // so only the loading count needs decrementing.
             this._transaction(() => this.onFetchCancelled(key));
             return this._getCachedOrInitial(key);
         }
@@ -694,8 +726,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return res;
         }
 
-        // Fetch failed — record the error, then return stale value or initial. An expired value
-        // whose refresh fails stays expired, so the next get() retries.
+        // Fetch failed — record the error, then return stale value or initial.
+        // An expired value whose refresh fails stays expired, so the next get() retries.
         this._transaction(() => {
             this._activeFetchPromises.delete(key);
             this._handleError(key, fetchResult.error);

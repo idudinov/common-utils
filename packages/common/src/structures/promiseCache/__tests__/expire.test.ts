@@ -1,7 +1,7 @@
 
 import { afterEach, beforeEach, describe, test, vi } from 'vitest';
 import { PromiseCache } from '../index.js';
-import { delayedValue } from './helpers.js';
+import { delayedError, delayedValue } from './helpers.js';
 
 describe('PromiseCache.expire', () => {
 
@@ -84,31 +84,32 @@ describe('PromiseCache.expire', () => {
         expect(recovered).toBe('recovered');
     });
 
-    test('expire() during an in-flight get() abandons the fetch: the awaiter gets the initial value, nothing is stored', async () => {
+    test('expire() during an in-flight get() does not abandon the fetch: the result is stored and returned, but the mark survives', async () => {
+        let calls = 0;
         const stored = vi.fn();
-        const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
+        const cache = new PromiseCache<number>(async () => { calls++; return delayedValue(10, calls); });
         cache.onStored.on(stored);
 
         const p = cache.get('a');
         cache.expire('a');
 
-        // never cached before — the abandoned fetch leaves the key reading as settled with no value, not never started
-        expect(cache.getPendingState('a')).toBeNull();
-        expect(cache.getIsLoading('a')).toBe(false);
+        expect(cache.getPendingState('a')).toBe('loading');
+        expect(cache.getIsLoading('a')).toBe(true);
 
         await vi.advanceTimersByTimeAsync(10);
-        expect(await p).toBeUndefined();
-        expect(stored).not.toHaveBeenCalled();
-        expect(cache.getIsValid('a')).toBe(false);
+        expect(await p).toBe(1);
+        expect(stored).toHaveBeenCalledTimes(1);
+        expect(cache.getCurrent('a', false)).toBe(1);
+        expect(cache.getIsValid('a')).toBe(false); // the mark survived the settle
         expect(cache.loadingCount).toBe(0);
 
         const p2 = cache.get('a');
         await vi.advanceTimersByTimeAsync(10);
-        expect(await p2).toBe(1);
+        expect(await p2).toBe(2); // a fresh fetch, not the stored value
         expect(cache.getIsValid('a')).toBe(true);
     });
 
-    test('expire() during an in-flight refresh() abandons the fetch: the awaiter keeps the stale value, nothing is stored', async () => {
+    test('expire() during an in-flight refresh() does not abandon the fetch: the result is stored and returned, but the mark survives', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter));
 
@@ -123,22 +124,23 @@ describe('PromiseCache.expire', () => {
         const p = cache.refresh('a');
         cache.expire('a');
 
-        // already cached — the abandoned fetch leaves the key reading as settled, not in flight
-        expect(cache.getPendingState('a')).toBeNull();
-        expect(cache.getIsLoading('a')).toBe(false);
+        expect(cache.getPendingState('a')).toBe('refreshing');
+        expect(cache.getIsLoading('a')).toBe(false); // 'refreshing' defaults to a silent background load
 
         await vi.advanceTimersByTimeAsync(10);
-        expect(await p).toBe(1); // stale value kept — the abandoned fetch's result is discarded
-        expect(stored).not.toHaveBeenCalled();
-        expect(cache.getCurrent('a', false)).toBe(1);
+        expect(await p).toBe(2); // the refresh's own result is served, not discarded
+        expect(stored).toHaveBeenCalledTimes(1);
+        expect(cache.getCurrent('a', false)).toBe(2);
+        expect(cache.getIsValid('a')).toBe(false); // the mark survived the settle
         expect(cache.loadingCount).toBe(0);
 
         const p2 = cache.get('a');
         await vi.advanceTimersByTimeAsync(10);
-        expect(await p2).toBe(3); // fresh fetch; the abandoned one still ran to completion as counter 2
+        expect(await p2).toBe(3); // a fresh fetch, since the mark survived
+        expect(cache.getIsValid('a')).toBe(true);
     });
 
-    test('the sentinel combines with expirationMs: consuming it restores time-based expiry', async () => {
+    test('forced staleness combines with expirationMs: consuming it restores time-based expiry', async () => {
         let counter = 0;
         const cache = new PromiseCache<number>(async () => ++counter).useInvalidation({ expirationMs: 100 });
 
@@ -276,27 +278,116 @@ describe('PromiseCache.expire', () => {
         expect(cache.getIsValid('a')).toBe(false); // TTL expiry still works after the expire() cycle
     });
 
-    test('expire() at Date.now() === 0 still forces staleness, despite the sentinel encoding to -0', async () => {
-        vi.setSystemTime(0);
-        let fetchCount = 0;
-        const cache = new PromiseCache<string>(async () => { fetchCount++; return 'a'; });
-
-        await cache.get('a');
-        cache.expire('a');
-
-        expect(cache.getIsValid('a')).toBe(false);
-
-        await cache.get('a');
-        expect(fetchCount).toBe(2);
-    });
-
-    test('expiring a key whose first-ever fetch is in flight leaves it reading as settled, not unknown', async () => {
+    test('expiring a key whose first-ever fetch is in flight lets that fetch complete and store its result', async () => {
         const cache = new PromiseCache<number>(async () => delayedValue(10, 1));
 
-        cache.get('a');
+        const p = cache.get('a');
         cache.expire('a');
 
         expect(cache.hasKey('a')).toBe(true);
-        expect(cache.delete('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p).toBe(1);
+        expect(cache.hasKey('a')).toBe(true);
+        expect(cache.getCurrent('a', false)).toBe(1);
+        expect(cache.getIsValid('a')).toBe(false); // the mark survived the settle
+    });
+
+    test('the mutation race: a refetch in flight when expire() lands still stores its (stale) result, and the next get() refetches again', async () => {
+        let counter = 0;
+        const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter))
+            .useInvalidation({ expirationMs: 50 });
+
+        const p0 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        await p0;
+        expect(cache.getCurrent('a', false)).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(51); // value goes stale, a read now starts a background refetch
+        const p = cache.get('a');
+        expect(cache.getCurrent('a', false)).toBe(1); // stale value served while the refetch is in flight
+
+        cache.expire('a'); // a mutation lands mid-flight; the in-flight refetch predates it
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p).toBe(2); // the in-flight result is stored and served regardless
+        expect(cache.getCurrent('a', false)).toBe(2);
+        expect(cache.getIsValid('a')).toBe(false); // the mark survived, so this result doesn't satisfy the mutation
+
+        const p2 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p2).toBe(3); // the next get() refetches, this time reflecting the mutation
+    });
+
+    test('expire() during an in-flight fetch that fails: the next get() retries once, then goes sticky', async () => {
+        let attempt = 0;
+        const cache = new PromiseCache<string>(async () => {
+            attempt++;
+            return delayedError(10, new Error(`fail-${attempt}`));
+        });
+
+        const p = cache.get('a');
+        cache.expire('a');
+
+        await vi.advanceTimersByTimeAsync(10);
+        await p;
+        expect(cache.getLastError('a')).toHaveProperty('message', 'fail-1');
+
+        // the mark survived the failed settle — one retry
+        const p2 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        await p2;
+        expect(attempt).toBe(2);
+        expect(cache.getLastError('a')).toHaveProperty('message', 'fail-2');
+
+        // sticky again — a further get() must not retry
+        await cache.get('a');
+        expect(attempt).toBe(2);
+    });
+
+    test('expire() before a fetch starts, followed by a failed fetch, goes sticky with no retry', async () => {
+        let attempt = 0;
+        let shouldFail = false;
+        const cache = new PromiseCache<string>(async () => {
+            attempt++;
+            if (shouldFail) {
+                throw new Error(`fail-${attempt}`);
+            }
+            return 'ok';
+        });
+
+        await cache.get('a');
+        expect(attempt).toBe(1);
+
+        cache.expire('a');
+        shouldFail = true;
+
+        await cache.get('a'); // consumes the mark at invocation, then fails
+        expect(attempt).toBe(2);
+        expect(cache.getLastError('a')).toBeInstanceOf(Error);
+
+        await cache.get('a'); // sticky — no retry
+        expect(attempt).toBe(2);
+    });
+
+    test('expire() on an errored key under useInvalidation(expirationMs) triggers one retry, not a TTL loop', async () => {
+        let attempt = 0;
+        const cache = new PromiseCache<string>(async () => {
+            attempt++;
+            throw new Error(`fail-${attempt}`);
+        }).useInvalidation({ expirationMs: 100 });
+
+        await cache.get('a');
+        expect(attempt).toBe(1);
+
+        cache.expire('a');
+
+        await cache.get('a'); // one retry — the mark is consumed at invocation
+        expect(attempt).toBe(2);
+
+        // sticky again: further reads, even much later, must not turn into a TTL-paced loop
+        await vi.advanceTimersByTimeAsync(1000);
+        await cache.get('a');
+        expect(attempt).toBe(2);
     });
 });

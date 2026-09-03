@@ -1,16 +1,17 @@
 
-import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+import type { ILazyPromise, LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import type { IMapModel, ValueStorageProvider } from '../../models/types.js';
 
-export type { LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+export type { LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
 
 /**
- * Supplies the observable primitives backing a {@link PromiseCache}'s internal storage.
+ * Supplies the primitives backing a {@link PromiseCache}'s storage.
  */
 export interface PromiseCacheStorageProvider extends ValueStorageProvider {
     /**
-     * Creates a keyed container for per-key cache state. Called during cache construction.
+     * Creates a keyed container for per-key cache state.
+     * Called during cache construction.
      * Must be identity-preserving: values read back exactly as stored, never wrapped or converted.
      */
     createMap<K, V>(): IMapModel<K, V>;
@@ -18,14 +19,13 @@ export interface PromiseCacheStorageProvider extends ValueStorageProvider {
 
 /** Constructor options for {@link PromiseCache}. */
 export interface PromiseCacheOptions<T> {
-    /** Supplies the observable storage primitives. Defaults to plain `Map`/`Model`. */
+    /**
+     * Supplies the storage primitives.
+     * Defaults to plain `Map`/`Model`.
+     */
     storage?: PromiseCacheStorageProvider;
 
-    /**
-     * Pre-processes a value — fetched or injected via `set()` — before it is stored.
-     *
-     * Useful for wrapping the value in an observable, e.g. `observable.object`.
-     */
+    /** Pre-processes a value — fetched or injected via `set()` — before it is stored. */
     prepareValue?: (value: T) => T;
 }
 
@@ -115,15 +115,10 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
     getCurrent(key: TKey, initiateFetch?: boolean): T | TInitial;
 
     /**
-     * Returns the loading state of an item.
-     *
-     * Derived at read time from the pending kind per the configured loading-state strategy, so a strategy
-     * change applies to fetches already in flight.
-     *
-     * @returns Strategy-derived value while a fetch is in flight; `false` once settled;
-     * `null` if never started, or after an explicit `delete()`.
+     * The loading state of an item; see {@link LoadingStates}.
+     * Does not trigger a fetch.
      */
-    getIsLoading(key: TKey): boolean | null;
+    getIsLoading(key: TKey): LoadingStates;
 
     /** Returns the current pending kind for the key, or `null` if idle/settled. */
     getPendingState(key: TKey): PendingLoadState | null;
@@ -147,11 +142,9 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
     readonly cachedCount: number;
 
     /**
-     * Returns an {@link ILazyPromise} handle for a specified cache key, usable anywhere a
-     * standalone `LazyPromise` is.
+     * Returns an {@link ILazyPromise} handle for a specified cache key.
      *
-     * @param strategy Optional per-handle `isLoading` override; unnamed pending states fall through
-     * to the cache-level report, not to the defaults.
+     * @param strategy Optional per-handle `isLoading` override, see {@link LoadingStateStrategy}.
      */
     getLazy(key: TKey, strategy?: LoadingStateStrategy): ILazyPromise<T, TInitial>;
 
@@ -162,8 +155,7 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
     keys(): TKey[];
 
     /**
-     * Returns a promise that resolves to the cached value of the item if loaded already, otherwise
-     * starts fetching and the promise will be resolved to the final value.
+     * Returns a promise that resolves to the cached value of the item if loaded already, otherwise starts fetching and the promise will be resolved to the final value.
      *
      * Concurrent calls for the same key share the same promise until it resolves.
      */
@@ -173,10 +165,10 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
      * Re-fetches the value for the specified key while keeping the stale cached value available.
      *
      * Implements stale-while-revalidate semantics:
-     * - The current cached value remains accessible via `getCurrent()` / `getLazy().value` during the refresh.
-     * - On success, the cached value is updated.
-     * - On error, the stale value is preserved and the error is stored.
-     * - Multiple concurrent refreshes use "latest wins" semantics.
+     * - the current cached value remains accessible via `getCurrent()` / `getLazy().value` during the refresh
+     * - on success, the cached value is updated
+     * - on error, the stale value is preserved and the error is stored
+     * - multiple concurrent refreshes use "latest wins" semantics
      */
     refresh(key: TKey): Promise<T | TInitial>;
 }
@@ -187,25 +179,17 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
  */
 export interface IControllablePromiseCache<T, TKey = string, TInitial extends T | undefined = undefined>
     extends IPromiseCache<T, TKey, TInitial> {
-    /** Injects a value into the cache for the specified key, as if it had been fetched. Sets the timestamp and clears any previous error. Cancels any in-flight fetch for this key. */
+    /**
+     * Injects a value into the cache for the specified key, as if it had been fetched.
+     * Clears any previous error and cancels any in-flight fetch for this key.
+     */
     set(key: TKey, value: T): void;
 
-    /**
-     * Marks the key's cached value stale without removing it: the next read starts a revalidation and
-     * keeps serving the current value until it settles. Stores no value and fires no events.
-     * The staleness marker lives outside the storage provider, so marking a settled key stale changes
-     * no provider-backed state — only the next read picks it up.
-     * Abandons an in-flight fetch for the key — its result is discarded and never stored. This does
-     * update provider-backed loading state.
-     * Starting a fetch consumes the forced staleness, so a failed revalidation does not retry on
-     * every subsequent read.
-     * No-op for a key with no per-key state.
-     */
+    /** Marks the key's cached value stale without removing it. */
     expire(key: TKey): void;
 
     /**
-     * Removes all per-key state (item, promise, status, error, timestamp) for the specified key;
-     * the next read refetches.
+     * Removes all per-key state for the specified key.
      *
      * @returns Whether any state existed for the key.
      */

@@ -1,17 +1,19 @@
-import { DEFAULT_LOADING_STATE, type ILazyPromise, type LoadingStateStrategy, type PendingLoadState } from './types.js';
+import { DEFAULT_LOADING_STATE, type ILazyPromise, type LoadingStates, type LoadingStateStrategy, type PendingLoadState } from './types.js';
 import { LazyPromiseView } from './view.js';
 
 /**
  * Single loading-state policy module.
  *
- * A {@link PendingLoadState} classifies an in-flight load. A {@link LoadingStateStrategy} maps a
- * pending kind to the reported `isLoading`. A kind unnamed in the strategy falls through to a
- * caller-chosen fallback: an instance's own strategy falls back to the built-in defaults
- * ({@link DEFAULT_LOADING_STATE}), a view falls back to its source's report.
+ * A {@link PendingLoadState} classifies an in-flight load.
+ * A {@link LoadingStateStrategy} maps a pending kind to the reported `isLoading`.
+ *
+ * A kind unnamed in the strategy falls through to a caller-chosen fallback:
+ * - an instance's own strategy falls back to the built-in defaults ({@link DEFAULT_LOADING_STATE})
+ * - a view falls back to its source's report
  */
 
 /** Resolves `strategy[pending]`, falling back to `fallback()` when that entry is `undefined`. */
-export function resolveIsLoading<F extends boolean | null>(
+export function resolveIsLoading<F extends LoadingStates>(
     pending: PendingLoadState,
     strategy: LoadingStateStrategy | undefined,
     fallback: () => F,
@@ -26,9 +28,11 @@ export function deriveIsLoading(pending: PendingLoadState, strategy?: LoadingSta
 }
 
 /**
- * The pending kind for an explicit `refresh()` call: `'loading'`/`'refreshing'` already in flight keep
- * their classification — a passive `'revalidating'` is escalated to `'refreshing'`, since an explicit
- * refresh() is a stronger signal. Otherwise derived from whether a value already exists.
+ * The pending kind for an explicit `refresh()` call.
+ *
+ * - `'loading'`/`'refreshing'` already in flight keep their classification
+ * - a passive `'revalidating'` is escalated to `'refreshing'`, since an explicit `refresh()` is a stronger signal
+ * - otherwise derived from whether a value already exists
  */
 export function refreshPendingKind(current: PendingLoadState | null, hasValue: boolean): PendingLoadState {
     if (current === 'loading' || current === 'refreshing') {

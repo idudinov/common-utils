@@ -60,7 +60,7 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.pendingState).toBeNull();
     });
 
-    test('a successful settle clears staleness — no second refetch', async () => {
+    test('a successful settle clears staleness — no second refetch, for a mark set before the load starts', async () => {
         let counter = 0;
         const factory = vi.fn(() => delay(10).then(() => ++counter));
         const lazy = new LazyPromise(factory);
@@ -70,7 +70,7 @@ describe('LazyPromise.expireTracker', () => {
         await p1;
         expect(factory).toHaveBeenCalledTimes(1);
 
-        lazy.expireTracker.expire();
+        lazy.expireTracker.expire(); // marked stale before any load is in flight
         const p2 = lazy.promise;
         await vi.advanceTimersByTimeAsync(10);
         await p2;
@@ -226,7 +226,7 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.value).toBe(2);
     });
 
-    test('expire() mid-flight is absorbed by the in-flight load\'s settle', async () => {
+    test('expire() mid-flight survives the in-flight load\'s settle', async () => {
         const factory = vi.fn(() => delay(10).then(() => 1));
         const lazy = new LazyPromise(factory);
 
@@ -234,11 +234,61 @@ describe('LazyPromise.expireTracker', () => {
         lazy.expireTracker.expire();
 
         await vi.advanceTimersByTimeAsync(10);
-        await p1;
+        await expect(p1).resolves.toBe(1);
 
-        expect(lazy.expireTracker.isExpired).toBeFalse();
+        expect(lazy.expireTracker.isForceExpired).toBeTrue();
+        expect(lazy.expireTracker.isExpired).toBeTrue();
         expect(factory).toHaveBeenCalledTimes(1);
         expect(lazy.pendingState).toBeNull();
+    });
+
+    test('the mutation race: expire() mid-load survives the settle, and the next read re-invokes the factory', async () => {
+        let counter = 0;
+        const factory = vi.fn(() => delay(10).then(() => ++counter));
+        const lazy = new LazyPromise(factory);
+
+        const p1 = lazy.promise;
+        lazy.expireTracker.expire();
+
+        await vi.advanceTimersByTimeAsync(10);
+        await expect(p1).resolves.toBe(1);
+        expect(lazy.currentValue).toBe(1);
+        expect(factory).toHaveBeenCalledTimes(1);
+
+        const p2 = lazy.promise; // the mark survived the settle — this read re-invokes the factory
+        await vi.advanceTimersByTimeAsync(10);
+        await expect(p2).resolves.toBe(2);
+        expect(factory).toHaveBeenCalledTimes(2);
+    });
+
+    test('a load slower than its own lifetime settles as fresh, not stale', async () => {
+        const factory = vi.fn(() => delay(20).then(() => 1));
+        const lazy = new LazyPromise(factory).withExpire(10);
+
+        const p1 = lazy.promise;
+        await vi.advanceTimersByTimeAsync(20);
+        await expect(p1).resolves.toBe(1);
+
+        expect(lazy.expireTracker.isForceExpired).toBeFalse();
+        expect(lazy.expireTracker.isExpired).toBeFalse();
+        expect(lazy.currentValue).toBe(1);
+
+        // the settle restarted the tracker — a read right after resolve must not trigger a second load
+        void lazy.value;
+        expect(factory).toHaveBeenCalledTimes(1);
+    });
+
+    test('setInstance() after expireTracker.expire() clears the mark; a fetch settle does not', async () => {
+        const lazy = new LazyPromise(() => Promise.resolve(1));
+
+        lazy.expireTracker.expire();
+        expect(lazy.expireTracker.isForceExpired).toBeTrue();
+
+        lazy.setInstance(2);
+
+        expect(lazy.expireTracker.isForceExpired).toBeFalse();
+        expect(lazy.expireTracker.isExpired).toBeFalse();
+        expect(lazy.currentValue).toBe(2);
     });
 
     test('a joined .value read mid-flight does not restart a shared tracker', async () => {

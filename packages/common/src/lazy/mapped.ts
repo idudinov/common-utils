@@ -2,14 +2,20 @@ import { Getter } from '../types/getter.js';
 import type { ILazyPromise, IResolvedLazyPromise } from './types.js';
 
 /**
- * Derives an always-valued {@link ILazyPromise} from a source by running a total mapper on every read.
- * `value` and `currentValue` are the override points for a subclass that wants to memoize the mapped result.
+ * Derives an always-valued {@link ILazyPromise} from a source, running a mapper that also handles `undefined` on every read.
+ *
+ * `value` and `currentValue` are the override points for memoizing the mapped result.
+ * `promise` and `refresh()` resolve through `this.value`, so an override reaches them too.
  */
 export class MappedLazyPromiseView<TSource, T, TSourceInitial extends TSource | undefined = undefined>
     implements ILazyPromise<T, T> {
 
     private readonly _sourceGetter: () => ILazyPromise<TSource, TSourceInitial>;
 
+    /**
+     * @param source Evaluated on every access, including inside `promise` and `refresh()`'s
+     * continuations — swapping its target mid-refresh resolves against the new source.
+     */
     constructor(
         source: Getter<ILazyPromise<TSource, TSourceInitial>>,
         protected readonly _map: (value: NoInfer<TSource | TSourceInitial> | undefined) => T,

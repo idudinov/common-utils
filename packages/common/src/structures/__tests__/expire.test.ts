@@ -50,4 +50,25 @@ describe('ExpireTracker', () => {
         tracker.expire();
         expect(tracker.isExpired).toBeTrue();
     });
+
+    test('isForceExpired is false on an unstarted tracker', () => {
+        const tracker = new ExpireTracker(10);
+        expect(tracker.isForceExpired).toBeFalse();
+    });
+
+    test('isForceExpired is false after a lifetime elapses naturally', async () => {
+        const tracker = new ExpireTracker(10).restart();
+        await vi.advanceTimersByTimeAsync(11);
+        expect(tracker.isExpired).toBeTrue();
+        expect(tracker.isForceExpired).toBeFalse();
+    });
+
+    test('isForceExpired is true after expire(), and false again after restart()', () => {
+        const tracker = new ExpireTracker(10);
+        tracker.expire();
+        expect(tracker.isForceExpired).toBeTrue();
+
+        tracker.restart();
+        expect(tracker.isForceExpired).toBeFalse();
+    });
 });

@@ -77,6 +77,19 @@ describe('MappedLazyPromiseView', () => {
         expect(view.hasResolvedValue()).toBe(false);
     });
 
+    test('promise on a failed source resolves to the mapped fallback, not a rejection', async () => {
+        const error = new Error('fail');
+        const source = new LazyPromise<number>(() => setTimeoutAsync(10).then((): number => { throw error; }));
+        const map = vi.fn((v: number | undefined) => v ?? -1);
+        const view = new MappedLazyPromiseView(source, map);
+
+        const p = view.promise;
+        await vi.advanceTimersByTimeAsync(10);
+
+        await expect(p).resolves.toBe(-1);
+        expect(view.hasResolvedValue()).toBe(false);
+    });
+
     test('promise resolves to the mapped value', async () => {
         const source = new LazyPromise(() => setTimeoutAsync(10).then(() => 1));
         const view = new MappedLazyPromiseView(source, v => `n:${v}`);

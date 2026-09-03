@@ -34,7 +34,7 @@ const current = userCache.getCurrent('user-42');
 const lazy = userCache.getLazy('user-42');
 lazy.value;         // T | TInitial (triggers fetch if not started; TInitial defaults to undefined)
 lazy.currentValue;  // T | TInitial (passive, no fetch)
-lazy.isLoading;     // boolean | null (null = not started)
+lazy.isLoading;     // LoadingStates (null = not started)
 lazy.error;         // unknown
 await lazy.promise; // Promise<T | TInitial>
 await lazy.refresh(); // re-fetches while keeping stale value available
@@ -116,8 +116,12 @@ Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sa
 
 `expire(key)` marks a key stale without removing it.
 The next read starts a revalidation and keeps serving the current value until it settles — no `onRemoved`, no `onStored`.
-The staleness marker lives outside the `storage` provider, so marking a settled key stale changes no provider-backed state — only the next read picks it up; abandoning an in-flight fetch does update provider-backed loading state.
-It abandons an in-flight fetch for the key, discarding its result; starting the next fetch consumes the forced staleness, so a failed revalidation doesn't retry on every following read.
+The staleness marker lives outside the `storage` provider, so marking a settled key stale changes no provider-backed state.
+Only the next read picks it up.
+A fetch already in flight when `expire()` is called keeps running: its result is stored once it resolves, but the mark survives, so the next read revalidates anyway instead of trusting that result.
+That's the case the rule exists for: a mutation returns while a stale-triggered refetch is already in flight, so that refetch cannot reflect it.
+Storing its result and revalidating on the next read is better than throwing away a real, if outdated, result.
+Starting a fetch consumes the forced staleness, so a failed revalidation doesn't retry on every following read.
 It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.
 
@@ -166,7 +170,7 @@ The constructor's plain `(key, refreshing)` fetcher is adapted into this shape.
 - write under your own symbol keys
 - it reappears on the `onStored` payload, so a store can be traced to how it was produced
 - absent for manual `set()`
-- each attempt has its own, and only the winning attempt stores — no races
+- each attempt has its own, and only the winning attempt stores
 
 ### Events
 
@@ -257,7 +261,8 @@ cache.extend(createStorageCacheExtension(myStorage, {
 Reads:
 
 - a cold read (no value, no stored error, not a `refresh()`) checks `storage` first
-- a hit is served without calling the fetcher and without writing back — a wrapper that stamps metadata on write (e.g. an expiry) keeps its stamp
+- a hit is served without calling the fetcher and without writing back
+- skipping that write-back is what lets a wrapper stamping metadata on write (e.g. an expiry) keep its stamp
 - anything else falls through to the fetcher, and the result is written to `storage`
 
 Writes:
@@ -269,8 +274,6 @@ Errors:
 
 - a throwing `getValue` becomes the key's fetch error
 - `setValue`/`removeValue` errors are logged and swallowed
-
-Known edge: `expire()` on a never-fetched key still reads `storage` on the next fetch; use `refresh()` to force a network call.
 
 An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
 

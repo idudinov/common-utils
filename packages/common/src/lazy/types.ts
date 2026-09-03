@@ -4,6 +4,9 @@ export type * from './extensions/types.js';
 /** Kinds of in-flight load — the only states whose `isLoading` report is overridable. */
 export type PendingLoadState = 'loading' | 'revalidating' | 'refreshing';
 
+/** Three states: not started (`null`), in progress (`true`), stopped (`false`). */
+export type LoadingStates = boolean | null;
+
 /**
  * Per-pending-state override of the reported `isLoading` value.
  * Missing keys fall back to {@link DEFAULT_LOADING_STATE}.
@@ -23,10 +26,10 @@ export interface ILazy<T> {
     readonly value: T;
 
     /**
-     * Returns true if a value of type `T` has been successfully loaded (no error).
+     * Returns whether a value of type `T` has been successfully loaded (no error).
      *
-     * When `true`, `value` is guaranteed to be `T` (not `TInitial` or an error fallback).
-     * When `false`, `value` may be `TInitial`, `undefined`, or a stale value from a previous successful load.
+     * When `true`, `value` and `currentValue` hold that loaded `T`.
+     * When `false`, they may hold a fallback, be `undefined`, or hold a stale value from a previous successful load.
      *
      * Does not trigger loading.
      */
@@ -42,10 +45,10 @@ export interface ILazy<T> {
 /** Represents a lazily asynchronously loaded value with promise-based access. */
 export interface ILazyPromise<T, TInitial extends T | undefined = undefined> extends ILazy<T | TInitial> {
     /**
-     * Returns loading state: `true` = loading with nothing usable to show (by default), `false` = settled
-     * or a background re-fetch is in flight, `null` = never started. Does not trigger loading.
+     * The current loading state; see {@link LoadingStates}.
+     * Does not trigger loading.
      */
-    readonly isLoading: boolean | null;
+    readonly isLoading: LoadingStates;
 
     /** The kind of load currently in flight, or null when idle/settled. */
     readonly pendingState: PendingLoadState | null;
@@ -58,7 +61,8 @@ export interface ILazyPromise<T, TInitial extends T | undefined = undefined> ext
     readonly promise: Promise<T | TInitial>;
 
     /**
-     * Re-executes the factory to get fresh data. If concurrent refreshes occur, the latest wins.
+     * Re-executes the factory to get fresh data.
+     * If concurrent refreshes occur, the latest wins.
      * All awaiting promises will resolve to the final refreshed value.
      *
      * On error, resolves to the current value (stale or initial) instead of rejecting.
@@ -110,9 +114,7 @@ export interface IResolvedLazyPromise<T, TInitial extends T | undefined = undefi
 export interface IControllableLazyPromise<T, TInitial extends T | undefined = undefined>
     extends ILazyPromise<T, TInitial>, IResettableModel {
     /**
-     * Manually sets the value and marks loading as complete.
-     * Clears any errors and restarts the expiration tracker.
-     * Useful for cache synchronization and manual state updates.
+     * Manually sets the value, marks loading as complete, and clears any errors.
      *
      * @param value - The value to set
      * @returns The value that was set
@@ -129,13 +131,12 @@ export type LazyFactory<T> = (refreshing?: boolean) => Promise<T>;
 
 /** Constructor options for {@link LazyPromise}. */
 export type LazyPromiseOptions<T> = {
-    /** Supplies the value boxes backing internal state. Defaults to plain, non-observable boxes. */
+    /**
+     * Supplies the value boxes backing internal state.
+     * Defaults to plain boxes.
+     */
     storage?: ValueStorageProvider;
 
-    /**
-     * Pre-processes a value — resolved by the factory or injected via `setInstance()` — before it is stored.
-     *
-     * Useful for wrapping the value in an observable, e.g. `observable.object`.
-     */
+    /** Pre-processes a value — resolved by the factory or injected via `setInstance()` — before it is stored. */
     prepareValue?: (value: T) => T;
 };

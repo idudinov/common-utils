@@ -1,22 +1,17 @@
-import type { ILazyPromise, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+import type { ILazyPromise, LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import { PromiseCache } from './cache.js';
 import type { IControllablePromiseCache, PromiseCacheFetcher } from './types.js';
 
 /**
- * Wraps a {@link PromiseCache} for a non-string key type `K`, translating ids to/from the
- * string keys the inner cache uses.
+ * Wraps a {@link PromiseCache} for a non-string key type `K`, translating ids to/from the string keys the inner cache uses.
  *
- * `toKey` is required. `fromKey` is optional: when omitted, ids are recovered from an internal
- * `Map<string, K>` registry populated on every call that receives an id — so a key can only be
- * resolved back to its id after that id has been passed to at least one public method first.
+ * `toKey` is required.
+ * `fromKey` is optional: when omitted, ids are recovered from an internal `Map<string, K>` registry populated on every call that receives an id — so a key can only be resolved back to its id after that id has been passed to at least one public method first.
  *
- * Registry entries live until `clear()`: memory grows with the number of distinct ids ever
- * fetched or stored, and a handle obtained before a `clear()` needs its id passed to a public
- * method again before it can resolve. Providing `fromKey` avoids the registry entirely —
- * recommended for large or unbounded id spaces.
+ * Registry entries live until `clear()`: memory grows with the number of distinct ids ever fetched or stored, and a handle obtained before a `clear()` needs its id passed to a public method again before it can resolve.
+ * Providing `fromKey` avoids the registry entirely — recommended for large or unbounded id spaces.
  *
- * Only a subset of `PromiseCache`'s API is mirrored here (translated to take `id: K`); anything
- * else is reached via the {@link cache} getter, which works with the inner string keys.
+ * Only a subset of `PromiseCache`'s API is mirrored here (translated to take `id: K`); anything else is reached via the {@link cache} getter, which works with the inner string keys.
  */
 export class KeyedPromiseCache<
     T,
@@ -36,7 +31,10 @@ export class KeyedPromiseCache<
         options?: {
             fromKey?: (key: string) => TKey;
             cacheFactory?: (f: PromiseCacheFetcher<T, string>) => TCache;
-            /** A value (non-function) or `(id: TKey) => TInitial` factory. Forwarded to the inner cache's `useInitialValue`. */
+            /**
+             * A value (non-function) or `(id: TKey) => TInitial` factory.
+             * Forwarded to the inner cache's `useInitialValue`.
+             */
             initialValue?: TInitial | ((id: TKey) => TInitial);
         },
     ) {
@@ -61,7 +59,6 @@ export class KeyedPromiseCache<
         return this._cache;
     }
 
-    /** Returns the number of cached items (resolved values). */
     get cachedCount(): number {
         return this._cache.cachedCount;
     }
@@ -82,7 +79,7 @@ export class KeyedPromiseCache<
         return this._cache.getLazy(this._registerKey(id), strategy);
     }
 
-    getIsLoading(id: TKey): boolean | null {
+    getIsLoading(id: TKey): LoadingStates {
         return this._cache.getIsLoading(this._toKey(id));
     }
 
@@ -110,7 +107,12 @@ export class KeyedPromiseCache<
         this._cache.set(this._registerKey(id), value);
     }
 
-    /** Deletes the item without touching the registry — a handle obtained before this call stays resolvable and the item can re-fetch. */
+    /**
+     * Removes all per-key state for the id.
+     * Does not touch the registry — a handle obtained before this call stays resolvable, and the item can re-fetch.
+     *
+     * @returns Whether any state existed for the id.
+     */
     delete(id: TKey): boolean {
         return this._cache.delete(this._toKey(id));
     }
@@ -119,7 +121,10 @@ export class KeyedPromiseCache<
         this._cache.expire(this._toKey(id));
     }
 
-    /** Clears the cache and the id registry. */
+    /**
+     * Clears the cache and resets the loading state.
+     * Also clears the id registry.
+     */
     clear() {
         this._cache.clear();
         this._registry.clear();
@@ -134,7 +139,10 @@ export class KeyedPromiseCache<
     /** Returns an iterator over the ids of the cached items. */
     keys(iterate: true): MapIterator<TKey>;
 
-    /** Returns the ids of the cached items. Raw string keys are reachable via `cache.keys()`. */
+    /**
+     * Returns the ids of the cached items.
+     * Raw string keys are reachable via `cache.keys()`.
+     */
     keys(): TKey[];
 
     keys(iterate: boolean = false) {

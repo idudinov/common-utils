@@ -2,6 +2,9 @@
 export interface IExpireTracker {
     readonly isExpired: boolean;
 
+    /** Whether {@link expire} forced expiry, as opposed to the lifetime elapsing. */
+    readonly isForceExpired: boolean;
+
     /** Begins a fresh lifetime from now. */
     restart(): void;
 
@@ -10,12 +13,14 @@ export interface IExpireTracker {
 }
 
 export class ExpireTracker implements IExpireTracker {
-    /** Unstarted and never-expiring are the same state: `Infinity` is never reached by `Date.now()`. */
+    /** `Infinity` means unstarted and never-expiring, since `Date.now()` never reaches it; `0` means force-expired. */
     private _expiringAt: number = Infinity;
 
     constructor(public readonly lifetimeMs: number) { }
 
     public get isExpired() { return Date.now() >= this._expiringAt; }
+
+    public get isForceExpired() { return this._expiringAt === 0; }
 
     public restart() {
         this._expiringAt = Date.now() + this.lifetimeMs;
