@@ -1,9 +1,6 @@
-import FFT from 'firebase-functions-test';
 import type { CallableRequest } from 'firebase-functions/v2/https';
 import type { FunctionFactory } from '../../server/functions/index.js';
 import type { AnyObject, ObjectOrPrimitive } from '@zajno/common/types/misc';
-
-const FFTest = FFT({ });
 
 export type EndpointTestContext = {
     auth?: { uid: string };
@@ -11,8 +8,6 @@ export type EndpointTestContext = {
 export type EndpointTestFunction<T, TOut> = (data: Partial<T>, context?: EndpointTestContext) => Promise<TOut>;
 
 export function wrapEndpoint<A extends AnyObject, R extends AnyObject, C extends ObjectOrPrimitive>(fn: FunctionFactory<A, R, C>) {
-    const wrapped = FFTest.wrap(fn.Endpoint);
-    // v2 WrappedV2CallableFunction takes a CallableRequest, adapt to our test interface
     return ((data: Partial<A>, context?: EndpointTestContext) => {
         const request = {
             data,
@@ -20,7 +15,7 @@ export function wrapEndpoint<A extends AnyObject, R extends AnyObject, C extends
             rawRequest: {} as any,
             acceptsStreaming: false,
         } as CallableRequest<Partial<A>>;
-        return wrapped(request);
+        return fn.Endpoint.run(request);
     }) as EndpointTestFunction<A, R>;
 }
 
@@ -33,5 +28,3 @@ export function getNestedFunction<A, R, K extends (string & keyof A & keyof R)>(
         return result && result[key] as Nested<R, K>;
     };
 }
-
-afterAll(() => FFTest.cleanup());
