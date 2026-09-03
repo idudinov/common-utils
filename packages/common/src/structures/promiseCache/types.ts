@@ -60,18 +60,33 @@ export type PromiseCacheFetcher<T, TKey> = (key: TKey, refreshing?: boolean) => 
 /** Per-fetch-attempt scratchpad, stores arbitrary data. */
 export type FetchContext = Record<string | symbol, unknown>;
 
+/** Fields a handler can change for the handlers inward, via {@link FetchRequest.next}. */
+export interface FetchOverrides<TKey extends string = string> {
+    key?: TKey;
+    refreshing?: boolean;
+}
+
 /** One fetch attempt's arguments. */
-export interface FetchRequest<TKey extends string = string> {
+export interface FetchRequest<T, TKey extends string = string> {
     readonly key: TKey;
 
     /** `true` when the attempt was started via `refresh()`. */
     readonly refreshing: boolean;
 
     readonly context: FetchContext;
+
+    /**
+     * Runs the next handler inward and returns its result; the constructor's fetcher runs when none is left.
+     *
+     * Calling it more than once re-runs the inner chain on this attempt's {@link FetchRequest.context}.
+     *
+     * @param overrides Values the handlers inward see in place of this request's own, see {@link FetchOverrides}. The context is always carried through.
+     */
+    next(overrides?: FetchOverrides<TKey>): Promise<T> | T;
 }
 
 /** {@link PromiseCacheFetcher} counterpart operating on a whole {@link FetchRequest}. */
-export type FetchRequestHandler<T, TKey extends string = string> = (request: FetchRequest<TKey>) => Promise<T> | T;
+export type FetchRequestHandler<T, TKey extends string = string> = (request: FetchRequest<T, TKey>) => Promise<T> | T;
 
 /** Base cache event payload. */
 export interface PromiseCacheEvent<T, TKey extends string = string> {

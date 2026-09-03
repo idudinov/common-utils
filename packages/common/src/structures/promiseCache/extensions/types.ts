@@ -12,10 +12,10 @@ import type {
  */
 export interface IPromiseCacheExtension<T, TKey extends string = string, TExtShape extends object = object> {
     /**
-     * Wraps or replaces the fetcher; wraps chain newest-outermost.
-     * A request passed to `original` may be rebuilt, but must keep the incoming `context` by reference.
+     * Installs a handler in the fetch chain; handlers run newest-outermost, with the constructor's fetcher innermost.
+     * A handler continues inward with `request.next()`, or returns a value to substitute the result without it.
      */
-    overrideFetcher?: (original: FetchRequestHandler<T, TKey>, target: IControllablePromiseCache<T, TKey, T | undefined> & TExtShape) => FetchRequestHandler<T, TKey>;
+    overrideFetcher?: (target: IControllablePromiseCache<T, TKey, T | undefined> & TExtShape) => FetchRequestHandler<T, TKey>;
 
     /**
      * Augments the instance with extra properties/methods.

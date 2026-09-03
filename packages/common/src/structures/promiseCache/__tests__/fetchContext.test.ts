@@ -19,9 +19,9 @@ describe('PromiseCache fetch request and context', () => {
 
         const cache = new PromiseCache<string>(async key => `fetched-${key}`)
             .extend({
-                overrideFetcher: original => request => {
+                overrideFetcher: () => request => {
                     requests.push({ key: request.key, refreshing: request.refreshing, context: request.context });
-                    return original(request);
+                    return request.next();
                 },
             });
 
@@ -35,7 +35,7 @@ describe('PromiseCache fetch request and context', () => {
         expect(requests[0].context).not.toBe(requests[1].context);
     });
 
-    test('returning without calling original substitutes the result, and onStored receives the same context object', async () => {
+    test('returning without calling next() substitutes the result, and onStored receives the same context object', async () => {
         const Mark = Symbol('mark');
         let requestContext: FetchContext | undefined;
         const onStored = vi.fn((e: { context?: FetchContext }) => e.context);
@@ -105,19 +105,19 @@ describe('PromiseCache fetch request and context', () => {
             return `fetched-${key}`;
         })
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     calls.push('ext1:before');
                     contexts.push(request.context);
-                    const res = await original(request);
+                    const res = await request.next();
                     calls.push('ext1:after');
                     return res;
                 },
             })
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     calls.push('ext2:before');
                     contexts.push(request.context);
-                    const res = await original(request);
+                    const res = await request.next();
                     calls.push('ext2:after');
                     return res;
                 },
@@ -129,57 +129,31 @@ describe('PromiseCache fetch request and context', () => {
         expect(contexts[0]).toBe(contexts[1]);
     });
 
-    test('a rebuilt request keeping the same context passes the health check', async () => {
+    test('next({ refreshing }) changes what the inner chain sees for this attempt', async () => {
         const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
         const cache = new PromiseCache<string>(fetcher)
             .extend({
-                overrideFetcher: original => request =>
-                    original({ key: request.key, refreshing: false, context: request.context }),
+                overrideFetcher: () => request => request.next({ refreshing: false }),
             });
 
         await expect(cache.refresh('a')).resolves.toBe('fetched-a');
         expect(fetcher).toHaveBeenCalledWith('a', false);
     });
 
-    test('a wrapper passing down a foreign context fails the fetch', async () => {
-        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
-        const cache = new PromiseCache<string>(fetcher)
-            .extend({
-                overrideFetcher: original => request =>
-                    original({ ...request, context: {} }),
-            });
-
-        await expect(cache.get('a')).resolves.toBeUndefined();
-        expect(cache.getLastError('a')).toBeInstanceOf(Error);
-        expect((cache.getLastError('a') as Error).message).toMatch(/context/);
-        expect(fetcher).not.toHaveBeenCalled();
-    });
-
-    test('a wrapper passing down a cloned context fails the fetch — marks in a clone would never reach onStored', async () => {
-        const cache = new PromiseCache<string>(async key => key)
-            .extend({
-                overrideFetcher: original => request =>
-                    original({ ...request, context: { ...request.context } }),
-            });
-
-        await expect(cache.get('a')).resolves.toBeUndefined();
-        expect(cache.getLastError('a')).toBeInstanceOf(Error);
-    });
-
-    test('an async wrapper can call original() after awaiting — the context stays valid', async () => {
+    test('an async wrapper can call next() after awaiting — the context stays valid', async () => {
         const Mark = Symbol('mark');
         const storedContexts: (FetchContext | undefined)[] = [];
 
         const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
         const cache = new PromiseCache<string>(fetcher)
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     const cached = await delayedValue<string | null>(10, null); // async storage miss
                     if (cached != null) {
                         return cached;
                     }
                     request.context[Mark] = true;
-                    return original(request);
+                    return request.next();
                 },
                 onStored: ({ context }) => {
                     storedContexts.push(context);
@@ -202,12 +176,12 @@ describe('PromiseCache fetch request and context', () => {
         const fetcher = vi.fn(async (key: string) => delayedValue(10, `fresh-${key}`));
         const cache = new PromiseCache<string>(fetcher)
             .extend({
-                overrideFetcher: original => request => {
+                overrideFetcher: () => request => {
                     if (!request.refreshing) {
                         request.context[Mark] = true;
                         return delayedValue(20, 'served');
                     }
-                    return original(request);
+                    return request.next();
                 },
                 onStored: ({ context }) => {
                     storedContexts.push(context);
@@ -245,5 +219,55 @@ describe('PromiseCache fetch request and context', () => {
         await expect(cache.get('a')).resolves.toBe('prepared-raw');
         expect(contexts).toHaveLength(1);
         expect(contexts[0]?.provided).toBe(true);
+    });
+
+    test('next({ key }) changes what the inner fetcher sees, and the value still stores under the attempt\'s key', async () => {
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher)
+            .extend({
+                overrideFetcher: () => request => request.next({ key: 'b' }),
+            });
+
+        await expect(cache.get('a')).resolves.toBe('fetched-b');
+        expect(fetcher).toHaveBeenCalledWith('b', false);
+        expect(cache.getCurrent('a', false)).toBe('fetched-b');
+        expect(cache.hasKey('b')).toBe(false);
+    });
+
+    test('next() called twice re-runs the inner chain on the same context', async () => {
+        const Mark = Symbol('mark');
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const storedContexts: (FetchContext | undefined)[] = [];
+
+        const cache = new PromiseCache<string>(fetcher)
+            .extend({
+                overrideFetcher: () => async request => {
+                    request.context[Mark] = true;
+                    await request.next();
+                    return request.next();
+                },
+                onStored: ({ context }) => {
+                    storedContexts.push(context);
+                },
+            });
+
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
+
+        expect(fetcher).toHaveBeenCalledTimes(2);
+        expect(storedContexts).toHaveLength(1);
+        expect(storedContexts[0]?.[Mark]).toBe(true);
+    });
+
+    test('a destructured next still works', async () => {
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher)
+            .extend({
+                overrideFetcher: () => request => {
+                    const { next } = request;
+                    return next();
+                },
+            });
+
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
     });
 });

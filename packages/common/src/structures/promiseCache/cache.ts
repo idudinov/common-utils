@@ -79,10 +79,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Runs a group of mutations as one change batch and returns `fn`'s result; identity if none was supplied. */
     private readonly _transaction: <R>(fn: () => R) => R;
 
-    private _fetcher: FetchRequestHandler<T, TKey>;
-
-    /** Contexts issued to fetch attempts. */
-    private readonly _issuedContexts = new WeakSet<FetchContext>();
+    /** The fetch chain in `extend()` order, the constructor's fetcher first; it runs in reverse, newest first. */
+    private readonly _fetchers: FetchRequestHandler<T, TKey>[];
 
     private readonly _onStored = new Event<PromiseCacheStoredEvent<T, TKey>>();
     private readonly _onRemoved = new Event<PromiseCacheRemovedEvent<T, TKey>>();
@@ -104,7 +102,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     ) {
         super();
 
-        this._fetcher = request => fetcher(request.key, request.refreshing);
+        this._fetchers = [request => fetcher(request.key, request.refreshing)];
 
         const storage = options?.storage ?? defaultStorageProvider;
         this._prepareValue = options?.prepareValue ?? (value => value);
@@ -207,12 +205,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         );
 
         if (extension.overrideFetcher) {
-            const inner = this._fetcher;
-            const guarded: FetchRequestHandler<T, TKey> = request => {
-                this._assertFetchContext(request);
-                return inner(request);
-            };
-            this._fetcher = extension.overrideFetcher(guarded, extended);
+            this._fetchers.push(extension.overrideFetcher(extended));
         }
 
         // Bound to the extension, so a plain-method hook keeps its own `this`.
@@ -657,12 +650,6 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         }
     }
 
-    /** Throws unless `request.context` is one this cache issued. */
-    private _assertFetchContext(request: FetchRequest<TKey>) {
-        if (request == null || !this._issuedContexts.has(request.context)) {
-            throw new Error('PromiseCache: the fetch context was lost or replaced by an extension — pass the incoming request\'s context through when calling original');
-        }
-    }
 
     /**
      * Unified fetch method with "latest wins" semantics.
@@ -679,7 +666,6 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      */
     protected async _doFetchAsync(key: TKey, refreshing: boolean): Promise<T | TInitial> {
         const context: FetchContext = {};
-        this._issuedContexts.add(context);
 
         const { factoryPromise, v } = this._transaction(() => {
             this.onBeforeFetch(key);
@@ -690,7 +676,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
             let factoryResult: Promise<T> | T;
             try {
-                factoryResult = this._fetcher({ key, refreshing, context });
+                factoryResult = this._invokeFetch(this._fetchers, { key, refreshing, context });
             } catch (err) {
                 // Re-throwing the original error from a synchronous fetcher or override layer
                 // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
@@ -778,5 +764,27 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
                 // ignore errors in the callback
             }
         }
+    }
+
+    /**
+     * Runs the newest of `handlers`, giving it a request whose `next` continues into the rest.
+     * `next` closes over its own slice, so the chain an attempt started on is the one it finishes on.
+     *
+     * Assumes a non-empty `handlers`:
+     * - index 0 holds the constructor's fetcher, which takes a key rather than a request, so no handler can exhaust the chain
+     * - an empty one fails the attempt on the call, rather than resolving `undefined` as if it were a `T`
+     *
+     * @param attempt Everything a request carries except `next`, which applies {@link FetchOverrides} over it — the context always carries through.
+     */
+    private _invokeFetch(handlers: readonly FetchRequestHandler<T, TKey>[], attempt: Omit<FetchRequest<T, TKey>, 'next'>): Promise<T> | T {
+        const inner = handlers.slice(0, -1);
+        return handlers[handlers.length - 1]({
+            ...attempt,
+            next: overrides => this._invokeFetch(inner, {
+                ...attempt,
+                key: overrides?.key ?? attempt.key,
+                refreshing: overrides?.refreshing ?? attempt.refreshing,
+            }),
+        });
     }
 }

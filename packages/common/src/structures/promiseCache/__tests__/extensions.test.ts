@@ -21,17 +21,17 @@ describe('PromiseCache extensions', () => {
             return key;
         })
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     calls.push('ext1:before');
-                    const res = await original(request);
+                    const res = await request.next();
                     calls.push('ext1:after');
                     return res;
                 },
             })
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     calls.push('ext2:before');
-                    const res = await original(request);
+                    const res = await request.next();
                     calls.push('ext2:after');
                     return res;
                 },

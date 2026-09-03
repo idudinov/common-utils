@@ -440,11 +440,11 @@ describe('PromiseCache storage cache extension', () => {
         const cache = new PromiseCache<string>(fetcher)
             .extend(createStorageCacheExtension(storage))
             .extend({
-                overrideFetcher: original => request => {
-                    return Promise.resolve(original(request)).then(value => {
+                overrideFetcher: () => request => {
+                    return Promise.resolve(request.next()).then(value => {
                         if (value === 'from-storage') {
                             // the storage hit didn't validate — force a network fetch within the same attempt
-                            return original({ ...request, refreshing: true });
+                            return request.next({ refreshing: true });
                         }
                         return value;
                     });

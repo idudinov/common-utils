@@ -309,7 +309,7 @@ export function createSubscriptionExtension<T, TKey extends string = string>(
     return {
         fetch: impl.fetch,
         get observedCount() { return impl.observedCount; },
-        overrideFetcher: (_original, extended) => {
+        overrideFetcher: extended => {
             impl.setTarget(extended);
             return request => impl.fetch(request.key, request.refreshing);
         },

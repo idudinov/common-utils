@@ -147,7 +147,7 @@ const cache = new PromiseCache<User>(fetchUser)
 
 An `IPromiseCacheExtension<T, TKey, TExtShape>` can:
 
-- wrap the fetcher — `overrideFetcher`
+- add a handler to the fetch chain — `overrideFetcher`
 - add members — `extendShape`
 - handle lifecycle events — `onStored`, `onRemoved`, `onCleared`
 - clean up — `dispose`
@@ -157,15 +157,18 @@ Lifecycle hook exceptions are caught and logged; they never break the cache or o
 
 ### Fetch requests and context
 
-Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, context }`.
-The constructor's plain `(key, refreshing)` fetcher is adapted into this shape.
+Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, context, next }`.
+The constructor's plain `(key, refreshing)` fetcher sits innermost in the chain and is called with those two values.
 
-`overrideFetcher` wraps it, newest-outermost. A wrapper:
+`overrideFetcher` adds a handler to the chain, newest-outermost. A handler:
 
-- may be async, and may call `original` at any later point
-- may skip `original` to substitute the result
-- may rebuild the request for `original`, but must keep the same `context` object (the cache verifies this)
+- continues inward with `request.next()`, at any point, including after an `await`
+- may skip `next()` to substitute the result
+- may pass `next({ key })` or `next({ refreshing })` to change what the handlers inward see
+- may call `next()` more than once, to retry the inner chain within the same attempt
 - fails the fetch on a throw or rejection — stored as the key's fetch error
+
+The context is never a handler's to supply, so a mark written on it always reaches that attempt's store.
 
 `context` is a per-attempt scratchpad:
 
@@ -287,7 +290,7 @@ const FromStorage = Symbol('persistence:fromStorage');
 
 function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromiseCacheExtension<T, string> {
     return {
-        overrideFetcher: original => request => {
+        overrideFetcher: () => request => {
             if (!request.refreshing) {
                 const raw = storage.getItem(prefix + request.key);
                 if (raw != null) {
@@ -295,7 +298,7 @@ function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromi
                     return JSON.parse(raw) as T;
                 }
             }
-            return original(request);
+            return request.next();
         },
         onStored: ({ key, value, context }) => {
             if (context?.[FromStorage]) return; // storage-served — nothing new to persist
@@ -307,7 +310,7 @@ function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromi
 }
 ```
 
-Retry logic follows the same shape: wrap `original` with your own attempt/backoff loop.
+Retry logic follows the same shape: wrap `request.next()` with your own attempt/backoff loop.
 
 ## Typed Keys
 

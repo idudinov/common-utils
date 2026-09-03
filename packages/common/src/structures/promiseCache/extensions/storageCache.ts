@@ -58,10 +58,9 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
     }
 
     overrideFetcher(
-        original: FetchRequestHandler<T, TKey>,
         target: IControllablePromiseCache<T, TKey, T | undefined>,
     ): FetchRequestHandler<T, TKey> {
-        return (request: FetchRequest<TKey>) => {
+        return (request: FetchRequest<T, TKey>) => {
             const { key, context } = request;
 
             if (this.shouldReadStorage(target.getState(key), request, target)) {
@@ -73,7 +72,7 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
             }
 
             this.clearServedFromStorage(context);
-            return original(request);
+            return request.next();
         };
     }
 
@@ -104,7 +103,7 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
      */
     protected shouldReadStorage(
         state: PromiseCacheKeyState,
-        request: FetchRequest<TKey>,
+        request: FetchRequest<T, TKey>,
         _target: IControllablePromiseCache<T, TKey, T | undefined>,
     ): boolean {
         if (request.refreshing) {

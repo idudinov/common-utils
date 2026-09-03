@@ -13,7 +13,7 @@ export interface IRetryExtension<T, TKey extends string = string> extends IPromi
  */
 export function createRetryExtension<T, TKey extends string = string>(config?: RetryConfig): IRetryExtension<T, TKey> {
     return {
-        overrideFetcher: original => request => withRetry(async () => original(request), config),
+        overrideFetcher: () => request => withRetry(async () => request.next(), config),
         retryConfig: config,
     };
 }
