@@ -143,7 +143,10 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     /** Configures automatic cache expiration: a lifetime in ms constructs and owns an {@link ExpireTracker}. */
     public withExpire(lifetimeMs: number): this;
-    /** Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker. */
+    /**
+     * Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker.
+     * If a value is already loaded, this also restarts the tracker, pushing its next expiry out by a full lifetime.
+     */
     public withExpire(tracker: IExpireTracker | undefined): this;
     public withExpire(arg: number | IExpireTracker | undefined) {
         this._expireTracker = typeof arg === 'number'
@@ -161,7 +164,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     }
 
     /**
-     * Configures the per-pending-state `isLoading` override; missing keys fall back to {@link DEFAULT_LOADING_STATE}.
+     * Configures the per-pending-state `isLoading` override; missing keys fall back to `DEFAULT_LOADING_STATE`.
      * The strategy is stored as-is (not copied), so getter-based fields are re-evaluated on each read.
      * Subsequent calls replace the previous strategy, not merge with it.
      */

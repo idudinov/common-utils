@@ -1,12 +1,19 @@
 
-import type { ILazyPromise, LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
+import type {
+    ILazyPromise,
+    LoadingStates,
+    LoadingStateStrategy,
+    PendingLoadState,
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    IControllableLazyPromise,
+} from '../../lazy/types.js';
 import type { IMapModel, ValueStorageProvider } from '../../models/types.js';
 
 export type { LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 export { DEFAULT_LOADING_STATE } from '../../lazy/types.js';
 
 /**
- * Supplies the primitives backing a {@link PromiseCache}'s storage.
+ * Supplies the primitives backing a promise cache's storage.
  */
 export interface PromiseCacheStorageProvider extends ValueStorageProvider {
     /**
@@ -17,7 +24,7 @@ export interface PromiseCacheStorageProvider extends ValueStorageProvider {
     createMap<K, V>(): IMapModel<K, V>;
 }
 
-/** Constructor options for {@link PromiseCache}. */
+/** Constructor options for a promise cache. */
 export interface PromiseCacheOptions<T> {
     /**
      * Supplies the storage primitives.
@@ -174,8 +181,8 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
 }
 
 /**
- * {@link IPromiseCache} plus direct cache manipulation, mirroring {@link IControllableLazyPromise} at the
- * collection level.
+ * {@link IPromiseCache} plus direct cache manipulation, mirroring
+ * {@link IControllableLazyPromise} at the collection level.
  */
 export interface IControllablePromiseCache<T, TKey = string, TInitial extends T | undefined = undefined>
     extends IPromiseCache<T, TKey, TInitial> {

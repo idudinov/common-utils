@@ -7,7 +7,7 @@ export interface IRetryExtension<T, TKey extends string = string> extends IPromi
 }
 
 /**
- * Wraps the fetcher of a {@link PromiseCache} (via `extend()`) with retry logic.
+ * Wraps the fetcher of a `PromiseCache` (via `extend()`) with retry logic.
  *
  * @param config Retry configuration, see {@link RetryConfig}. Falls back to defaults if omitted.
  */

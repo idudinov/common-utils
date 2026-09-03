@@ -129,7 +129,7 @@ export interface IControllableLazyPromise<T, TInitial extends T | undefined = un
  */
 export type LazyFactory<T> = (refreshing?: boolean) => Promise<T>;
 
-/** Constructor options for {@link LazyPromise}. */
+/** Constructor options for a lazy promise. */
 export type LazyPromiseOptions<T> = {
     /**
      * Supplies the value boxes backing internal state.

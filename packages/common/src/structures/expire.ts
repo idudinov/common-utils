@@ -5,7 +5,7 @@ export interface IExpireTracker {
     /** Whether {@link expire} forced expiry, as opposed to the lifetime elapsing. */
     readonly isForceExpired: boolean;
 
-    /** Begins a fresh lifetime from now. */
+    /** Begins a fresh lifetime from now, clearing {@link isForceExpired}. */
     restart(): void;
 
     /** Forces {@link isExpired} to report `true` until the next {@link restart}. */

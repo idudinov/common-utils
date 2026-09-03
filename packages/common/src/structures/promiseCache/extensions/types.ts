@@ -7,8 +7,8 @@ import type {
 } from '../types.js';
 
 /**
- * Cross-cutting behavior pluggable into a {@link PromiseCache} via `extend()`, mirroring
- * {@link ILazyPromiseExtension} at the collection level.
+ * Cross-cutting behavior pluggable into a promise cache via `extend()`, mirroring
+ * `ILazyPromiseExtension` at the collection level.
  */
 export interface IPromiseCacheExtension<T, TKey extends string = string, TExtShape extends object = object> {
     /**

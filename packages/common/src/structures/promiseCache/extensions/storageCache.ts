@@ -13,7 +13,7 @@ export interface StorageCacheExtensionOptions<TKey extends string = string> {
 const FromStorage = Symbol('storageCache:fromStorage');
 
 /**
- * Read-through/write-through persistence for a {@link PromiseCache}, backed by a synchronous
+ * Read-through/write-through persistence for a `PromiseCache`, backed by a synchronous
  * {@link IStorageSync}.
  *
  * Reads:

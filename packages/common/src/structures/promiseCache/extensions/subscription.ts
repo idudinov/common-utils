@@ -292,7 +292,7 @@ class SubscriptionExtensionImpl<T, TKey extends string = string> {
 }
 
 /**
- * Adapts a live {@link SubscriptionSource} into a {@link PromiseCache} extension.
+ * Adapts a live {@link SubscriptionSource} into a `PromiseCache` extension.
  *
  * - the first emission resolves the fetch, later ones update the cached value
  * - each key's subscription is owned solely by the extension

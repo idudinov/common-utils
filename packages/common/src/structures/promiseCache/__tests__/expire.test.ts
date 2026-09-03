@@ -215,6 +215,28 @@ describe('PromiseCache.expire', () => {
         expect(removed).toEqual(['a']);
     });
 
+    test('sanitize() does not purge a key whose revalidation is in flight, so refresh() still resolves to the fetched value', async () => {
+        let counter = 0;
+        const cache = new PromiseCache<number>(async () => delayedValue(10, ++counter))
+            .useInvalidation({ expirationMs: 50 });
+
+        const p0 = cache.get('a');
+        await vi.advanceTimersByTimeAsync(10);
+        await p0;
+
+        await vi.advanceTimersByTimeAsync(51); // value goes stale
+
+        const p = cache.refresh('a');
+        expect(cache.getIsValid('a')).toBe(false); // still invalidated while the fetch is in flight
+
+        expect(cache.sanitize()).toBe(0);
+        expect(cache.hasKey('a')).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(await p).toBe(2); // refresh() resolves to the fetched value, not undefined
+        expect(cache.getIsValid('a')).toBe(true);
+    });
+
     test('works with no InvalidationConfig configured', async () => {
         const cache = new PromiseCache<string>(async id => id);
 

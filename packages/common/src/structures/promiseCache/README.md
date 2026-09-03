@@ -3,7 +3,7 @@
 A key-value cache for async data that goes well beyond a simple `Map<string, Promise>`. Provide a fetcher function, and `PromiseCache` handles the rest:
 
 - **Deduplication** — concurrent `get()` calls for the same key share a single in-flight promise
-- **Synchronous access** — `getCurrent()` returns the resolved value instantly; `getLazy()` gives a reactive `ILazyPromise<T>` handle
+- **Synchronous access** — `getCurrent()` returns the resolved value instantly; `getLazy()` gives an `ILazyPromise<T>` handle
 - **Per-key error tracking** — fetch failures are stored, logged, and forwarded to an optional callback
 - **Stale-while-revalidate** — invalidated items remain readable; `refresh(key)` re-fetches without clearing the stale value
 - **Invalidation** — time-based TTL, custom callback, or both; `onRemoved` fires for every per-key removal
@@ -52,7 +52,7 @@ await typedLazy.promise; // Promise<User>
 [`types.ts`](types.ts) defines two interfaces, mirroring `ILazyPromise` / `IControllableLazyPromise` at the collection level:
 
 - `IPromiseCache<T, TKey, TInitial>` — consumption. Reading via `get`/`getLazy`/`getCurrent` may trigger a fetch; every other member is passive.
-- `IControllablePromiseCache<T, TKey, TInitial>` — adds manipulation: `set`, `delete`, `clear`.
+- `IControllablePromiseCache<T, TKey, TInitial>` — adds direct manipulation on top.
 
 `PromiseCache` implements the controllable one; code that only reads should depend on `IPromiseCache`.
 
@@ -79,7 +79,7 @@ cache.useOnError((key, error) => reportToSentry(error, { cacheKey: key }));
 cache.useInitialValue({ name: 'Loading...', id: '' });    // static
 cache.useInitialValue((key) => ({ name: 'Loading...', id: key })); // per-key factory
 
-cache.useLoadingState({ revalidating: false });           // silence the spinner on passive re-fetch
+cache.useLoadingState({ revalidating: true });            // report isLoading during a passive re-fetch too
 ```
 
 `useInvalidation`'s config object is stored by reference (not destructured), so getter-based fields are re-evaluated on every access — useful for dynamic policies:
@@ -100,7 +100,7 @@ cache.useInvalidation({ get expirationMs() { return ttl; } });
 | `'revalidating'` | stale value, passive `get()`/`.value` on expiry | `false` |
 | `'refreshing'` | stale value, explicit `refresh()` | `false` |
 
-> A retry after a failed refresh reports `isLoading === false` by default — kind `'refreshing'`, stale value present, error set — since the trigger is a retry, not a first load. Pass `{ refreshing: true }` to `useLoadingState`, or read `getPendingState`/`pendingState` directly, to show a spinner during that retry too. That's for an explicit `refresh()` retry only — a passive `get()`-driven retry of an expired entry reports kind `'revalidating'` instead; pass `{ revalidating: true }` for that path.
+> A retry after a failed refresh reports `isLoading === false` by default — kind `'refreshing'`, stale value present, error set — since the trigger is a retry, not a first load. Pass `{ refreshing: true }` to `useLoadingState`, or read `getPendingState`/`pendingState` directly, so `isLoading` reports `true` during that retry too. That's for an explicit `refresh()` retry only — a passive `get()`-driven retry of an expired entry reports kind `'revalidating'` instead; pass `{ revalidating: true }` for that path.
 
 ### Logging
 
@@ -110,7 +110,7 @@ Inherited from `Loggable`: `cache.setLoggerFactory(createLogger, 'UserCache')`, 
 
 `useInvalidation()` accepts an `InvalidationConfig<T>`: a time-based TTL (`expirationMs`), a custom check (`invalidationCheck`), or both.
 
-Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sanitize()` sweeps them out and returns the removed count.
+Invalidated items stay readable via `getCurrent()` (stale-while-revalidate). `sanitize()` sweeps them out and returns the removed count. A key with a fetch in flight is skipped, so a revalidation already underway is never orphaned.
 
 `delete(key)` removes all per-key state; the next read refetches. `onRemoved` fires for every per-key removal — `delete()` (including extension-driven ones such as eviction) and `sanitize()`. It does not fire for `clear()`, which has its own event (`onCleared`).
 
@@ -401,7 +401,7 @@ renderItem(cache.getLazy('user-42'));
 
 ### `PromiseCacheLazyHandle` — for adapter authors
 
-`getLazy()` returns a `PromiseCacheLazyHandle<T, TInitial>` instance. Its getters are one-line delegations to the cache's public methods, with no state of its own — subclass it and override individual getters to build a custom adapter without reimplementing the rest:
+`PromiseCacheLazyHandle<T, TInitial>`'s getters are one-line delegations to the cache's public methods, with no state of its own — subclass it and override individual getters to build a custom adapter without reimplementing the rest:
 
 ```ts
 import { PromiseCacheLazyHandle } from '@zajno/common/structures/promiseCache';

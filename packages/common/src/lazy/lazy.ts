@@ -57,7 +57,10 @@ export class Lazy<T> implements ILazy<T>, IDisposable, IResettableModel {
 
     /** Configures automatic cache expiration: a lifetime in ms constructs and owns an {@link ExpireTracker}. */
     public withExpire(lifetimeMs: number): this;
-    /** Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker. */
+    /**
+     * Configures automatic cache expiration using an expire tracker; `undefined` resets to a fresh never-expiring tracker.
+     * If a value is already loaded, this also restarts the tracker, pushing its next expiry out by a full lifetime.
+     */
     public withExpire(tracker: IExpireTracker | undefined): this;
     public withExpire(arg: number | IExpireTracker | undefined) {
         this._expireTracker = typeof arg === 'number'

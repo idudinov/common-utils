@@ -119,7 +119,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     // --- Configuration ---
 
     /**
-     * Configures the per-pending-state `isLoading` override; missing keys fall back to {@link DEFAULT_LOADING_STATE}.
+     * Configures the per-pending-state `isLoading` override; missing keys fall back to `DEFAULT_LOADING_STATE`, see {@link deriveIsLoading}.
+     *
      * Applies to every key.
      * The strategy is stored as-is, not copied, so getter-based fields are re-evaluated on each read.
      * Subsequent calls replace the previous strategy rather than merging with it.
@@ -428,6 +429,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * Marks the key's cached value stale without removing it.
      *
      * - The next read starts a revalidation and keeps serving the current value until it settles
+     * - If a fetch is already in flight, the next read joins it and resolves to that (stale) result instead — only the read after it revalidates
      * - Stores no value and fires no events
      * - A fetch already in flight still stores its result, but the mark outlives it, so the next read revalidates anyway
      * - The next fetch consumes the mark, so a failed revalidation does not retry on every read
@@ -474,6 +476,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Iterates over all cached items and removes those that are invalid (expired).
      *
+     * A key with a fetch in flight is left alone, so a revalidation already underway is never orphaned.
      * A key re-added by its own `onRemoved` handler is still counted — the presence check runs before that handler fires.
      * Only a key re-added by an earlier key's handler in the same pass, before its own announcement turn, is left uncounted.
      *
@@ -483,6 +486,10 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         const keysToRemove: TKey[] = [];
 
         for (const key of this._itemsCache.keys()) {
+            if (this.getPendingState(key as TKey) != null) {
+                continue;
+            }
+
             if (this.getIsInvalidated(key)) {
                 keysToRemove.push(key as TKey);
             }
@@ -553,11 +560,12 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             : undefined as TInitial;
     }
 
-    /** @internal Deletes all cache entries for a key (item, promise, status). */
+    /** @internal Deletes all cache entries for a key (item, promise, status, timestamp). */
     protected _deleteKey(key: string) {
         this._fetchCache.delete(key);
         this._itemsStatus.delete(key);
         this._itemsCache.delete(key);
+        this._timestamps.delete(key);
     }
 
     /** Whether any per-key map still holds state for `key` — used to decide if a removal is real. */
