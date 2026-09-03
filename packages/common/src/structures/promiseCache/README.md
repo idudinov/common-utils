@@ -125,6 +125,8 @@ Starting a fetch consumes the forced staleness, so a failed revalidation doesn't
 It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.
 
+`getState(key)` returns a snapshot of everything the cache knows about a key in one object, including `invalidatedBy` — `'forced'`, `'time'`, `'check'`, or `null` — which no single-field getter exposes.
+
 Max-items eviction is not core — see `createEvictionExtension` below.
 
 > A read of an expired value whose revalidation keeps failing retries on every read (the entry never becomes valid again on its own). Throttle at the call site, or use `invalidationCheck` to hold the value valid despite the failure. A failed *first* fetch — no value was ever stored — has no TTL to expire from: the error is sticky until `refresh(key)` or `delete(key)` retries it.
@@ -255,27 +257,26 @@ import { createStorageCacheExtension } from '@zajno/common/structures/promiseCac
 cache.extend(createStorageCacheExtension(myStorage, {
     storageKey: (key) => `user:${key}`,        // defaults to identity
     clearStorage: () => clearMyStorageScope(),  // called on cache.clear(); omit to leave storage untouched — IStorageSync has no clear()
+    readOn: 'stale',                            // how much staleness sends a read to storage
 }));
 ```
 
-Reads:
+Reads and writes:
 
-- a cold read (no value, no stored error, not a `refresh()`) checks `storage` first
-- a hit is served without calling the fetcher and without writing back
-- skipping that write-back is what lets a wrapper stamping metadata on write (e.g. an expiry) keep its stamp
-- anything else falls through to the fetcher, and the result is written to `storage`
+- a fetch attempt checks storage before the fetcher runs, and a hit is served without calling it
+- a hit is not written back, so a wrapper stamping metadata on write (e.g. an expiry) keeps its stamp
+- anything else falls through to the fetcher, and its result is written to storage, as is `set()`
+- every per-key removal removes from storage
+- a throw while reading becomes the key's fetch error; a throw while writing or removing is swallowed
 
-Writes:
-
-- `set()` writes to storage
-- every per-key removal removes from it
-
-Errors:
-
-- a throwing `getValue` becomes the key's fetch error
-- `setValue`/`removeValue` errors are logged and swallowed
+`readOn` decides how stale an in-memory value has to be before a read consults storage, which is what lets two tiers carry different lifetimes.
+A short in-memory window over a longer-lived box — `'stale'`, the default — revisits the box on each lapse, and reaches the fetcher only once the box has lapsed too.
+`'absent'` reads the box once per key and never again.
+`'invalid'` also consults it for a value that `invalidationCheck` rejected, which then serves that same rejected value on every read unless something else writes a fresh one.
 
 An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
+
+`createStorageCacheExtension` is a thin factory over the exported `StorageCacheExtension` class, whose decision points are protected and overridable.
 
 ### Writing a custom extension
 

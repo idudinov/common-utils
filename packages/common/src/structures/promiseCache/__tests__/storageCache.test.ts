@@ -1,6 +1,7 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { IStorageSync } from '../../../storage/types.js';
+import { StorageCacheExtension } from '../extensions/storageCache.js';
 import { createStorageCacheExtension, PromiseCache } from '../index.js';
 import { delayedValue } from './helpers.js';
 
@@ -22,6 +23,37 @@ class FakeStorage<T> implements IStorageSync<T | null> {
 
     removeValue(key: string): boolean {
         return this.map.delete(key);
+    }
+}
+
+/** In-memory sync storage fake that stamps each write and expires it after `ttlMs` — a stand-in for a real box's own TTL. */
+class TtlFakeStorage<T> implements IStorageSync<T | null> {
+    private readonly entries = new Map<string, { value: T; storedAt: number }>();
+
+    constructor(private readonly ttlMs: number) { }
+
+    getValue(key: string): T | null {
+        const entry = this.entries.get(key);
+        if (!entry || Date.now() - entry.storedAt > this.ttlMs) {
+            return null;
+        }
+        return entry.value;
+    }
+
+    setValue(key: string, value: T | null): void {
+        if (value == null) {
+            this.entries.delete(key);
+            return;
+        }
+        this.entries.set(key, { value, storedAt: Date.now() });
+    }
+
+    hasValue(key: string): boolean {
+        return this.getValue(key) != null;
+    }
+
+    removeValue(key: string): boolean {
+        return this.entries.delete(key);
     }
 }
 
@@ -167,13 +199,13 @@ describe('PromiseCache storage cache extension', () => {
         expect(storage.map.get('a')).toBe('fetched-a');
     });
 
-    test('useInvalidation({ expirationMs }) with the extension refetches instead of reading storage once expired', async () => {
+    test("readOn: 'absent' — useInvalidation({ expirationMs }) refetches instead of reading storage once expired", async () => {
         const storage = new FakeStorage<string>();
         storage.map.set('a', 'from-storage');
 
         const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
         const cache = new PromiseCache<string>(fetcher)
-            .extend(createStorageCacheExtension(storage))
+            .extend(createStorageCacheExtension(storage, { readOn: 'absent' }))
             .useInvalidation({ expirationMs: 100 });
 
         await expect(cache.get('a')).resolves.toBe('from-storage');
@@ -183,6 +215,120 @@ describe('PromiseCache storage cache extension', () => {
 
         await expect(cache.get('a')).resolves.toBe('fetched-a');
         expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    describe('readOn (default: \'stale\')', () => {
+        test('an in-memory lapse within the box\'s own TTL still serves from the box, not the fetcher', async () => {
+            const storage = new TtlFakeStorage<string>(10 * 60_000); // 10 min box TTL
+            storage.setValue('a', 'from-storage');
+
+            const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+            const cache = new PromiseCache<string>(fetcher)
+                .extend(new StorageCacheExtension(storage))
+                .useInvalidation({ expirationMs: 60_000 }); // 1 min in-memory window
+
+            await expect(cache.get('a')).resolves.toBe('from-storage');
+            expect(fetcher).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(61_000); // in-memory value lapses, box still good
+
+            await expect(cache.get('a')).resolves.toBe('from-storage');
+            expect(fetcher).not.toHaveBeenCalled();
+        });
+
+        test('a lapse past the box\'s own TTL calls the fetcher and re-stamps the box', async () => {
+            const storage = new TtlFakeStorage<string>(5_000);
+            storage.setValue('a', 'from-storage');
+
+            const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+            const cache = new PromiseCache<string>(fetcher)
+                .extend(new StorageCacheExtension(storage))
+                .useInvalidation({ expirationMs: 1_000 });
+
+            await expect(cache.get('a')).resolves.toBe('from-storage');
+            expect(fetcher).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(6_000); // both the in-memory window and the box lapse
+
+            await expect(cache.get('a')).resolves.toBe('fetched-a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+            expect(storage.getValue('a')).toBe('fetched-a');
+        });
+
+        test('a value-based invalidationCheck reaches the fetcher rather than re-reading the box', async () => {
+            const storage = new FakeStorage<string>();
+            storage.map.set('a', 'stale-schema-value');
+
+            const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+            let rejectValue = false;
+            const cache = new PromiseCache<string>(fetcher)
+                .extend(createStorageCacheExtension(storage))
+                .useInvalidation({ invalidationCheck: () => rejectValue });
+
+            await expect(cache.get('a')).resolves.toBe('stale-schema-value');
+            expect(fetcher).not.toHaveBeenCalled();
+
+            rejectValue = true;
+            await expect(cache.get('a')).resolves.toBe('fetched-a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    test("readOn: 'invalid' — a value-based invalidationCheck re-reads the box instead of reaching the fetcher", async () => {
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'stale-schema-value');
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        let rejectValue = false;
+        const cache = new PromiseCache<string>(fetcher)
+            .extend(createStorageCacheExtension(storage, { readOn: 'invalid' }))
+            .useInvalidation({ invalidationCheck: () => rejectValue });
+
+        await expect(cache.get('a')).resolves.toBe('stale-schema-value');
+        expect(fetcher).not.toHaveBeenCalled();
+
+        rejectValue = true;
+        await expect(cache.get('a')).resolves.toBe('stale-schema-value');
+        expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    test.each(['absent', 'stale', 'invalid'] as const)(
+        "readOn: '%s' — with no invalidation configured, a populated key never re-reads the box",
+        async (readOn) => {
+            const storage = new FakeStorage<string>();
+            storage.map.set('a', 'from-storage');
+
+            const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+            const cache = new PromiseCache<string>(fetcher).extend(createStorageCacheExtension(storage, { readOn }));
+
+            await expect(cache.get('a')).resolves.toBe('from-storage');
+            expect(fetcher).not.toHaveBeenCalled();
+
+            storage.map.set('a', 'updated-in-storage'); // shows up out-of-band — must stay unread
+            await expect(cache.get('a')).resolves.toBe('from-storage');
+            expect(fetcher).not.toHaveBeenCalled();
+        },
+    );
+
+    test('a subclass overriding shouldReadStorage decides the gate', async () => {
+        class AlwaysReadExtension<T> extends StorageCacheExtension<T> {
+            protected override shouldReadStorage(): boolean {
+                return true;
+            }
+        }
+
+        const storage = new FakeStorage<string>();
+        storage.map.set('a', 'from-storage');
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher).extend(new AlwaysReadExtension(storage));
+
+        await expect(cache.get('a')).resolves.toBe('from-storage');
+        expect(fetcher).not.toHaveBeenCalled();
+
+        // the subclass's gate ignores `refreshing` too, so even refresh() reads the box
+        await expect(cache.refresh('a')).resolves.toBe('from-storage');
+        expect(fetcher).not.toHaveBeenCalled();
     });
 
     test('a storage-hit get() superseded by refresh() ends up with storage holding the refresh result', async () => {

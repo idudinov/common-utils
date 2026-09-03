@@ -42,6 +42,24 @@ describe('PromiseCache extensions', () => {
         expect(calls).toEqual(['ext2:before', 'ext1:before', 'base:a', 'ext1:after', 'ext2:after']);
     });
 
+    test('a class-shaped extension with plain-method hooks keeps its own `this`', async () => {
+        class CountingExtension {
+            count = 0;
+
+            onStored() {
+                this.count++;
+            }
+        }
+        const ext = new CountingExtension();
+
+        const cache = new PromiseCache<string>(async key => key).extend(ext);
+
+        await cache.get('a');
+        cache.set('b', 'raw');
+
+        expect(ext.count).toBe(2);
+    });
+
     test('extendShape augments the instance and its members are directly usable', () => {
         const cache = new PromiseCache<number>(async () => 1).extend<{ double: (n: number) => number }>({
             extendShape: previous => extendObject(previous, {

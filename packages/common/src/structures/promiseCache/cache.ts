@@ -10,7 +10,7 @@ import type { Getter } from '../../types/getter.js';
 import type { Nullable } from '../../types/misc.js';
 import { applyExtensionShape } from '../extension.js';
 import type { IPromiseCacheExtension } from './extensions/index.js';
-import { isInvalidated, ResolveTimestamps } from './invalidation.js';
+import { getInvalidationReason, ResolveTimestamps } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
 import type {
     ErrorCallback,
@@ -19,8 +19,10 @@ import type {
     FetchRequestHandler,
     IControllablePromiseCache,
     InvalidationConfig,
+    InvalidationReason,
     PromiseCacheEvent,
     PromiseCacheFetcher,
+    PromiseCacheKeyState,
     PromiseCacheOptions,
     PromiseCacheRemovedEvent,
     PromiseCacheStorageProvider,
@@ -213,20 +215,21 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             this._fetcher = extension.overrideFetcher(guarded, extended);
         }
 
+        // Bound to the extension, so a plain-method hook keeps its own `this`.
         if (extension.onStored) {
-            this._onStored.on(extension.onStored);
+            this._onStored.on(extension.onStored.bind(extension));
         }
 
         if (extension.onRemoved) {
-            this._onRemoved.on(extension.onRemoved);
+            this._onRemoved.on(extension.onRemoved.bind(extension));
         }
 
         if (extension.onCleared) {
-            this._onCleared.on(extension.onCleared);
+            this._onCleared.on(extension.onCleared.bind(extension));
         }
 
         if (extension.dispose) {
-            this._ownDisposer = combineDisposers(extension.dispose, this._ownDisposer);
+            this._ownDisposer = combineDisposers(extension.dispose.bind(extension), this._ownDisposer);
         }
 
         return extended;
@@ -313,6 +316,20 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     getIsValid(key: TKey): boolean {
         return this._itemsCache.has(key) && !this.getIsInvalidated(key);
+    }
+
+    getState(key: TKey): PromiseCacheKeyState {
+        const invalidatedBy = this.getInvalidatedBy(key);
+        return {
+            hasKey: this.hasKey(key),
+            hasValue: this.getHasValue(key),
+            isValid: this._itemsCache.has(key) && invalidatedBy == null,
+            invalidatedBy,
+            error: this.getLastError(key),
+            pendingState: this.getPendingState(key),
+            isLoading: this.getIsLoading(key),
+            stampedAt: this._timestamps.get(key),
+        };
     }
 
     getLastError(key: TKey): unknown {
@@ -542,10 +559,15 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
     /** Checks if the cached item for the specified key is invalidated (expired), per the configured {@link InvalidationConfig}. */
     protected getIsInvalidated(key: string): boolean {
+        return this.getInvalidatedBy(key) != null;
+    }
+
+    /** Reason the key is invalidated, `null` if it is not; see {@link PromiseCacheKeyState.invalidatedBy}. */
+    protected getInvalidatedBy(key: string): InvalidationReason | null {
         if (this._timestamps.isForcedExpired(key)) {
-            return true;
+            return 'forced';
         }
-        return isInvalidated(
+        return getInvalidationReason(
             this._invalidationConfig,
             key,
             () => ({ has: this._itemsCache.has(key), value: this._itemsCache.get(key) }),

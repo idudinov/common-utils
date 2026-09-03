@@ -95,6 +95,36 @@ export interface PromiseCacheRemovedEvent<T, TKey extends string = string> exten
     readonly key: TKey;
 }
 
+/** Why a key's cached value is not valid. */
+export type InvalidationReason = 'forced' | 'time' | 'check';
+
+/** The return type of {@link IPromiseCache.getState}. */
+export type PromiseCacheKeyState = {
+    /** {@link IPromiseCache.hasKey} */
+    hasKey: boolean;
+
+    /** {@link IPromiseCache.getHasValue} */
+    hasValue: boolean;
+
+    /** {@link IPromiseCache.getIsValid} */
+    isValid: boolean;
+
+    /** `null` when the key is not invalidated, independent of whether a value is present. */
+    invalidatedBy: InvalidationReason | null;
+
+    /** {@link IPromiseCache.getLastError} */
+    error: unknown;
+
+    /** {@link IPromiseCache.getPendingState} */
+    pendingState: PendingLoadState | null;
+
+    /** {@link IPromiseCache.getIsLoading} */
+    isLoading: LoadingStates;
+
+    /** Resolve time of the current value, `undefined` if never stamped. */
+    stampedAt: number | undefined;
+};
+
 /**
  * Configuration for cache invalidation policy.
  *
@@ -141,6 +171,15 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
 
     /** Returns whether the cached item for the specified key is valid (not expired and not invalidated by callback). */
     getIsValid(key: TKey): boolean;
+
+    /**
+     * A snapshot of everything the cache knows about `key`.
+     *
+     * Guarantees:
+     * - a new object on every call, computed fresh, never a cached or stable reference
+     * - `invalidationCheck` (if configured) runs at most once, shared across `isValid` and `invalidatedBy`
+     */
+    getState(key: TKey): PromiseCacheKeyState;
 
     /** Returns true if the item is cached or fetching was initiated. Does not initiate fetching. */
     hasKey(key: TKey): boolean;
