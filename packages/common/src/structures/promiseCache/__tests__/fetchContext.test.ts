@@ -199,7 +199,7 @@ describe('PromiseCache fetch request and context', () => {
         expect(storedContexts[0]?.[Mark]).toBeUndefined();
     });
 
-    test('a substituted result passes through prepareValue, and the context still reaches onStored', async () => {
+    test('a substituted result passes through prepareValue, and the context is still there when onStored fires', async () => {
         const contexts: (FetchContext | undefined)[] = [];
 
         const cache = new PromiseCache<string>(
@@ -219,19 +219,6 @@ describe('PromiseCache fetch request and context', () => {
         await expect(cache.get('a')).resolves.toBe('prepared-raw');
         expect(contexts).toHaveLength(1);
         expect(contexts[0]?.provided).toBe(true);
-    });
-
-    test('next({ key }) changes what the inner fetcher sees, and the value still stores under the attempt\'s key', async () => {
-        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
-        const cache = new PromiseCache<string>(fetcher)
-            .extend({
-                overrideFetcher: () => request => request.next({ key: 'b' }),
-            });
-
-        await expect(cache.get('a')).resolves.toBe('fetched-b');
-        expect(fetcher).toHaveBeenCalledWith('b', false);
-        expect(cache.getCurrent('a', false)).toBe('fetched-b');
-        expect(cache.hasKey('b')).toBe(false);
     });
 
     test('next() called twice re-runs the inner chain on the same context', async () => {
@@ -304,7 +291,7 @@ describe('PromiseCache fetch request and context', () => {
         expect(observed).toEqual([false, true]);
     });
 
-    test('state reaches an inner handler unchanged through next(), including next({ key })', async () => {
+    test('state stays the same object across next()', async () => {
         let outerState: PromiseCacheKeyState | undefined;
         let innerState: PromiseCacheKeyState | undefined;
 
@@ -313,7 +300,7 @@ describe('PromiseCache fetch request and context', () => {
             .extend({
                 overrideFetcher: () => request => {
                     outerState = request.state;
-                    return request.next({ key: 'b' });
+                    return request.next();
                 },
             })
             .extend({
@@ -323,8 +310,7 @@ describe('PromiseCache fetch request and context', () => {
                 },
             });
 
-        await expect(cache.get('a')).resolves.toBe('fetched-b');
-        expect(fetcher).toHaveBeenCalledWith('b', false);
+        await expect(cache.get('a')).resolves.toBe('fetched-a');
         expect(innerState).toBe(outerState);
     });
 });

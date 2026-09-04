@@ -141,6 +141,18 @@ describe('PromiseCache extensions', () => {
         expect(cache.hasKey('a')).toBe(false);
     });
 
+    test('a fetching get() runs invalidationCheck once, not once for get() plus once for the fetch chain', async () => {
+        const invalidationCheck = vi.fn(() => true);
+        const cache = new PromiseCache<string>(async key => key).useInvalidation({ invalidationCheck });
+
+        cache.set('a', 'v');
+        invalidationCheck.mockClear();
+
+        await cache.get('a');
+
+        expect(invalidationCheck).toHaveBeenCalledTimes(1);
+    });
+
     test('a throwing hook does not break the cache operation or other hooks', async () => {
         const good = vi.fn();
         const error = vi.fn();

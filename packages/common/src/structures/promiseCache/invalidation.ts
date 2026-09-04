@@ -1,12 +1,12 @@
 import type { InvalidationConfig, InvalidationReason } from './types.js';
 
 /**
- * Evaluates an {@link InvalidationConfig} for a single key: time-based expiration first,
- * then the `invalidationCheck` callback (only run against a currently cached value).
+ * Evaluates an {@link InvalidationConfig} for a single key: the `invalidationCheck` callback first
+ * (only run against a currently cached value), then time-based expiration.
  *
  * @param getValue Lazily reads the current cached value; only called when a callback check is configured.
  * @param timestamp The key's cached-at timestamp, or `undefined` if never stored.
- * @returns `'time'` or `'check'` for whichever rule invalidated the key first, `null` if neither did.
+ * @returns `'check'` or `'time'` for whichever rule invalidated the key first, `null` if neither did.
  */
 export function getInvalidationReason<T>(
     config: InvalidationConfig<T> | null,
@@ -18,17 +18,17 @@ export function getInvalidationReason<T>(
         return null;
     }
 
-    const expirationMs = config.expirationMs;
-    if (expirationMs != null && expirationMs > 0 && timestamp != null) {
-        if (Date.now() - timestamp > expirationMs) {
-            return 'time';
-        }
-    }
-
     if (config.invalidationCheck) {
         const { has, value } = getValue();
         if (has && config.invalidationCheck(key, value, timestamp ?? 0)) {
             return 'check';
+        }
+    }
+
+    const expirationMs = config.expirationMs;
+    if (expirationMs != null && expirationMs > 0 && timestamp != null) {
+        if (Date.now() - timestamp > expirationMs) {
+            return 'time';
         }
     }
 

@@ -165,11 +165,11 @@ The constructor's plain `(key, refreshing)` fetcher sits innermost in the chain 
 
 - continues inward with `request.next()`, at any point, including after an `await`
 - may skip `next()` to substitute the result
-- may pass `next({ key })` or `next({ refreshing })` to change what the handlers inward see
+- may pass `next({ refreshing })` to change what the handlers inward see
 - may call `next()` more than once, to retry the inner chain within the same attempt
 - fails the fetch on a throw or rejection — stored as the key's fetch error
 
-`next()` carries `context` and `state` through unchanged, so a mark written on `context` reaches that attempt's store.
+`next()` carries `key`, `context`, and `state` through unchanged, so a mark written on `context` is still there when that attempt stores.
 
 `context` is a per-attempt scratchpad:
 
@@ -267,7 +267,7 @@ cache.extend(createStorageCacheExtension(myStorage, {
 
 Reads:
 
-- a fetch attempt gated open checks `storage` before the fetcher runs
+- a fetch attempt reads `storage` before calling the fetcher, when `shouldReadStorage` allows it
 - a hit is served without calling the fetcher and without writing back
 - skipping that write-back is what lets a wrapper stamping metadata on write (e.g. an expiry) keep its stamp
 - anything else falls through to the fetcher, and the result is written to `storage`
@@ -283,15 +283,15 @@ Errors:
 - `setValue`/`removeValue` errors are logged and swallowed
 
 `readOn` decides how stale an in-memory value has to be before a read consults storage, which is what lets two tiers carry different lifetimes.
-A short in-memory window over a longer-lived box — `'stale'`, the default — revisits the box on each lapse, and reaches the fetcher only once the box has lapsed too.
-`'absent'` reads the box once per key and never again.
+A short in-memory window over storage that stays good for longer — `'stale'`, the default — checks storage again on each lapse, and calls the fetcher only once storage has lapsed too.
+`'absent'` checks storage once per key and never again.
 `'invalid'` also consults it for a value that `invalidationCheck` rejected, which then serves that same rejected value on every read unless something else writes a fresh one.
 
-`expire(key)` always reaches the fetcher, under every `readOn` — a key marked `'forced'` never consults storage. `delete(key)` is the operation that also drops the key from the box.
+`expire(key)` calls the fetcher under every `readOn`; override `readOnForced` to read `storage` for a force-expired key instead. `delete(key)` is the operation that also drops the key from storage.
 
 An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
 
-`createStorageCacheExtension` is a thin factory over the exported `StorageCacheExtension` class, whose decision points are protected and overridable.
+`createStorageCacheExtension` is a thin factory over the exported `StorageCacheExtension` class, whose behavior is protected and overridable, member by member.
 
 ### Writing a custom extension
 

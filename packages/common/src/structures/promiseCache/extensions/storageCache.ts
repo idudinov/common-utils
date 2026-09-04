@@ -11,10 +11,10 @@ import type {
 import type { IPromiseCacheExtension } from './types.js';
 
 /**
- * Which additional state, beyond an absent value, opens {@link StorageCacheExtension.shouldReadStorage}'s gate.
+ * How stale a cached value has to be before {@link StorageCacheExtension.shouldReadStorage} reads `storage` for it.
  *
  * Values:
- * - `'absent'` — nothing else; only an absent value opens it
+ * - `'absent'` — only an absent value does
  * - `'stale'` — also a value that timed out under `useInvalidation({ expirationMs })`
  * - `'invalid'` — also a value invalid for any reason, including one a configured `invalidationCheck` rejected
  */
@@ -38,7 +38,7 @@ const FromStorage = Symbol('storageCache:fromStorage');
  * Read-through/write-through persistence for a `PromiseCache`, backed by a synchronous {@link IStorageSync}.
  *
  * Reads:
- * - a fetch attempt gated open checks `storage` before the fetcher runs; `readOn` picks the default gate policy
+ * - a fetch attempt reads `storage` before calling the fetcher, when {@link shouldReadStorage} allows it; `readOn` sets the default policy
  * - a hit is served without calling the fetcher and without writing back, so a wrapper that stamps write-side metadata (e.g. an expiry) keeps its stamp
  * - a miss falls through to the fetcher, and the result is written to `storage`
  *
@@ -83,6 +83,9 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
     }
 
     onRemoved(event: PromiseCacheRemovedEvent<T, TKey>): void {
+        if (!this.shouldRemove(event)) {
+            return;
+        }
         this.removeFromStorage(event.key);
     }
 
@@ -93,12 +96,12 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
     // --- Protected overridables ---
 
     /**
-     * The gate deciding whether a fetch attempt checks `storage` before the fetcher runs.
+     * Whether a fetch attempt reads `storage` before calling the fetcher.
      *
      * Decides:
      * - `false` whenever `request.refreshing` is `true`
      * - for a key holding no value, `true` unless an error is stored for it
-     * - for a key stale-marked by `expire()`, per {@link readOnForced}
+     * - for a key stale-marked by `expire()`, read `storage` only if {@link readOnForced} allows it
      * - otherwise, per the configured {@link StorageCacheReadOn}
      */
     protected shouldReadStorage(
@@ -158,6 +161,11 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
     /** Whether a successful store should be written to `storage` — `false` for a value just served from it. */
     protected shouldWrite(event: PromiseCacheStoredEvent<T, TKey>): boolean {
         return !this.wasServedFromStorage(event.context);
+    }
+
+    /** Whether a removed key should also be removed from `storage`. */
+    protected shouldRemove(_event: PromiseCacheRemovedEvent<T, TKey>): boolean {
+        return true;
     }
 
     /**

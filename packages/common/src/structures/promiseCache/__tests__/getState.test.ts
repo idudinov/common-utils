@@ -125,6 +125,18 @@ describe('PromiseCache getState', () => {
             expect(cache.getState('a').invalidatedBy).toBe('check');
         });
 
+        test("'check' outranks 'time' when both rules match", async () => {
+            const cache = new PromiseCache<string>(async id => id).useInvalidation({
+                expirationMs: 50,
+                invalidationCheck: () => true,
+            });
+
+            await cache.get('a');
+            await vi.advanceTimersByTimeAsync(60);
+
+            expect(cache.getState('a').invalidatedBy).toBe('check');
+        });
+
         test('runs invalidationCheck once per getState() call, not once per field', async () => {
             const invalidationCheck = vi.fn(() => true);
             const cache = new PromiseCache<string>(async id => id).useInvalidation({ invalidationCheck });
