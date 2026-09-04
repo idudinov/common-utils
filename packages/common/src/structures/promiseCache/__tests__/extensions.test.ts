@@ -21,17 +21,17 @@ describe('PromiseCache extensions', () => {
             return key;
         })
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     calls.push('ext1:before');
-                    const res = await original(request);
+                    const res = await request.next();
                     calls.push('ext1:after');
                     return res;
                 },
             })
             .extend({
-                overrideFetcher: original => async request => {
+                overrideFetcher: () => async request => {
                     calls.push('ext2:before');
-                    const res = await original(request);
+                    const res = await request.next();
                     calls.push('ext2:after');
                     return res;
                 },
@@ -40,6 +40,24 @@ describe('PromiseCache extensions', () => {
         await expect(cache.get('a')).resolves.toBe('a');
 
         expect(calls).toEqual(['ext2:before', 'ext1:before', 'base:a', 'ext1:after', 'ext2:after']);
+    });
+
+    test('a class-shaped extension with plain-method hooks keeps its own `this`', async () => {
+        class CountingExtension {
+            count = 0;
+
+            onStored() {
+                this.count++;
+            }
+        }
+        const ext = new CountingExtension();
+
+        const cache = new PromiseCache<string>(async key => key).extend(ext);
+
+        await cache.get('a');
+        cache.set('b', 'raw');
+
+        expect(ext.count).toBe(2);
     });
 
     test('extendShape augments the instance and its members are directly usable', () => {

@@ -60,18 +60,37 @@ export type PromiseCacheFetcher<T, TKey> = (key: TKey, refreshing?: boolean) => 
 /** Per-fetch-attempt scratchpad, stores arbitrary data. */
 export type FetchContext = Record<string | symbol, unknown>;
 
+/** Fields a handler can change for the handlers inward, via {@link FetchRequest.next}. */
+export interface FetchOverrides {
+    refreshing?: boolean;
+}
+
 /** One fetch attempt's arguments. */
-export interface FetchRequest<TKey extends string = string> {
+export interface FetchRequest<T, TKey extends string = string> {
     readonly key: TKey;
 
     /** `true` when the attempt was started via `refresh()`. */
     readonly refreshing: boolean;
 
+    /** The key's state when the attempt started, before it was marked pending. */
+    readonly state: PromiseCacheKeyState;
+
     readonly context: FetchContext;
+
+    /**
+     * Runs the next handler inward and returns its result.
+     *
+     * Calls:
+     * - the constructor's fetcher, when no handler is left
+     * - the inner chain again, on this attempt's {@link FetchRequest.context}, when called more than once
+     *
+     * @param overrides Values the handlers inward see in place of this request's own, see {@link FetchOverrides}. The key, context, and state are always carried through.
+     */
+    next(overrides?: FetchOverrides): Promise<T> | T;
 }
 
 /** {@link PromiseCacheFetcher} counterpart operating on a whole {@link FetchRequest}. */
-export type FetchRequestHandler<T, TKey extends string = string> = (request: FetchRequest<TKey>) => Promise<T> | T;
+export type FetchRequestHandler<T, TKey extends string = string> = (request: FetchRequest<T, TKey>) => Promise<T> | T;
 
 /** Base cache event payload. */
 export interface PromiseCacheEvent<T, TKey extends string = string> {
@@ -94,6 +113,37 @@ export interface PromiseCacheStoredEvent<T, TKey extends string = string> extend
 export interface PromiseCacheRemovedEvent<T, TKey extends string = string> extends PromiseCacheEvent<T, TKey> {
     readonly key: TKey;
 }
+
+/**
+ * Why a key's cached value is not valid.
+ *
+ * A key matching more than one reports the first of:
+ * - `'forced'` — `expire()` marked it stale
+ * - `'check'` — a configured `invalidationCheck` rejected the value
+ * - `'time'` — the value is older than the configured `expirationMs`
+ */
+export type InvalidationReason = 'forced' | 'time' | 'check';
+
+/** A key's state at a single moment. */
+export type PromiseCacheKeyState = {
+    /** {@link IPromiseCache.hasKey} */
+    hasKey: boolean;
+
+    /** {@link IPromiseCache.getHasValue} */
+    hasValue: boolean;
+
+    /** {@link IPromiseCache.getIsValid} */
+    isValid: boolean;
+
+    /** `null` when the key is not invalidated, independent of whether a value is present. */
+    invalidatedBy: InvalidationReason | null;
+
+    /** {@link IPromiseCache.getLastError} */
+    error: unknown;
+
+    /** Resolve time of the current value, `undefined` if never stamped. */
+    stampedAt: number | undefined;
+};
 
 /**
  * Configuration for cache invalidation policy.

@@ -11,11 +11,8 @@ import type {
  * `ILazyPromiseExtension` at the collection level.
  */
 export interface IPromiseCacheExtension<T, TKey extends string = string, TExtShape extends object = object> {
-    /**
-     * Wraps or replaces the fetcher; wraps chain newest-outermost.
-     * A request passed to `original` may be rebuilt, but must keep the incoming `context` by reference.
-     */
-    overrideFetcher?: (original: FetchRequestHandler<T, TKey>, target: IControllablePromiseCache<T, TKey, T | undefined> & TExtShape) => FetchRequestHandler<T, TKey>;
+    /** Installs a handler in the fetch chain, newest-outermost, continuing inward with `request.next()`. */
+    overrideFetcher?: (target: IControllablePromiseCache<T, TKey, T | undefined> & TExtShape) => FetchRequestHandler<T, TKey>;
 
     /**
      * Augments the instance with extra properties/methods.

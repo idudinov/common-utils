@@ -125,6 +125,8 @@ Starting a fetch consumes the forced staleness, so a failed revalidation doesn't
 It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.
 
+`getState(key)` returns a snapshot of the key's state in one object, including `invalidatedBy` (`'forced'`, `'time'`, `'check'`, or `null`), which no single-field getter exposes. It's a concrete method on `PromiseCache` and `KeyedPromiseCache`, not part of `IPromiseCache`.
+
 Max-items eviction is not core — see `createEvictionExtension` below.
 
 > A read of an expired value whose revalidation keeps failing retries on every read (the entry never becomes valid again on its own). Throttle at the call site, or use `invalidationCheck` to hold the value valid despite the failure. A failed *first* fetch — no value was ever stored — has no TTL to expire from: the error is sticky until `refresh(key)` or `delete(key)` retries it.
@@ -145,7 +147,7 @@ const cache = new PromiseCache<User>(fetchUser)
 
 An `IPromiseCacheExtension<T, TKey, TExtShape>` can:
 
-- wrap the fetcher — `overrideFetcher`
+- add a handler to the fetch chain — `overrideFetcher`
 - add members — `extendShape`
 - handle lifecycle events — `onStored`, `onRemoved`, `onCleared`
 - clean up — `dispose`
@@ -155,15 +157,19 @@ Lifecycle hook exceptions are caught and logged; they never break the cache or o
 
 ### Fetch requests and context
 
-Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, context }`.
-The constructor's plain `(key, refreshing)` fetcher is adapted into this shape.
+Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, state, context, next }`.
+The constructor's plain `(key, refreshing)` fetcher sits innermost in the chain and is called with those two values.
+`state` is the key's `getState()` snapshot taken at the start of the attempt, before it was marked pending and before a forced-expiry mark was consumed.
 
-`overrideFetcher` wraps it, newest-outermost. A wrapper:
+`overrideFetcher` adds a handler to the chain, newest-outermost. A handler:
 
-- may be async, and may call `original` at any later point
-- may skip `original` to substitute the result
-- may rebuild the request for `original`, but must keep the same `context` object (the cache verifies this)
+- continues inward with `request.next()`, at any point, including after an `await`
+- may skip `next()` to substitute the result
+- may pass `next({ refreshing })` to change what the handlers inward see
+- may call `next()` more than once, to retry the inner chain within the same attempt
 - fails the fetch on a throw or rejection — stored as the key's fetch error
+
+`next()` carries `key`, `context`, and `state` through unchanged, so a mark written on `context` is still there when that attempt stores.
 
 `context` is a per-attempt scratchpad:
 
@@ -255,12 +261,13 @@ import { createStorageCacheExtension } from '@zajno/common/structures/promiseCac
 cache.extend(createStorageCacheExtension(myStorage, {
     storageKey: (key) => `user:${key}`,        // defaults to identity
     clearStorage: () => clearMyStorageScope(),  // called on cache.clear(); omit to leave storage untouched — IStorageSync has no clear()
+    readOn: 'stale',                            // how much staleness sends a read to storage
 }));
 ```
 
 Reads:
 
-- a cold read (no value, no stored error, not a `refresh()`) checks `storage` first
+- a fetch attempt reads `storage` before calling the fetcher, when `shouldReadStorage` allows it
 - a hit is served without calling the fetcher and without writing back
 - skipping that write-back is what lets a wrapper stamping metadata on write (e.g. an expiry) keep its stamp
 - anything else falls through to the fetcher, and the result is written to `storage`
@@ -275,7 +282,16 @@ Errors:
 - a throwing `getValue` becomes the key's fetch error
 - `setValue`/`removeValue` errors are logged and swallowed
 
+`readOn` decides how stale an in-memory value has to be before a read consults storage, which is what lets two tiers carry different lifetimes.
+A short in-memory window over storage that stays good for longer — `'stale'`, the default — checks storage again on each lapse, and calls the fetcher only once storage has lapsed too.
+`'absent'` checks storage once per key and never again.
+`'invalid'` also consults it for a value that `invalidationCheck` rejected, which then serves that same rejected value on every read unless something else writes a fresh one.
+
+`expire(key)` calls the fetcher under every `readOn`; override `readOnForced` to read `storage` for a force-expired key instead. `delete(key)` is the operation that also drops the key from storage.
+
 An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
+
+`createStorageCacheExtension` is a thin factory over the exported `StorageCacheExtension` class, whose behavior is protected and overridable, member by member.
 
 ### Writing a custom extension
 
@@ -286,7 +302,7 @@ const FromStorage = Symbol('persistence:fromStorage');
 
 function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromiseCacheExtension<T, string> {
     return {
-        overrideFetcher: original => request => {
+        overrideFetcher: () => request => {
             if (!request.refreshing) {
                 const raw = storage.getItem(prefix + request.key);
                 if (raw != null) {
@@ -294,7 +310,7 @@ function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromi
                     return JSON.parse(raw) as T;
                 }
             }
-            return original(request);
+            return request.next();
         },
         onStored: ({ key, value, context }) => {
             if (context?.[FromStorage]) return; // storage-served — nothing new to persist
@@ -306,7 +322,7 @@ function createPersistenceExtension<T>(storage: Storage, prefix: string): IPromi
 }
 ```
 
-Retry logic follows the same shape: wrap `original` with your own attempt/backoff loop.
+Retry logic follows the same shape: wrap `request.next()` with your own attempt/backoff loop.
 
 ## Typed Keys
 

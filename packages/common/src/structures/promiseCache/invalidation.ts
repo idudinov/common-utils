@@ -1,37 +1,48 @@
-import type { InvalidationConfig } from './types.js';
+import type { InvalidationConfig, InvalidationReason } from './types.js';
 
 /**
- * Evaluates an {@link InvalidationConfig} for a single key: time-based expiration first,
- * then the `invalidationCheck` callback (only run against a currently cached value).
+ * Evaluates an {@link InvalidationConfig} for a single key: the `invalidationCheck` callback first
+ * (only run against a currently cached value), then time-based expiration.
  *
  * @param getValue Lazily reads the current cached value; only called when a callback check is configured.
  * @param timestamp The key's cached-at timestamp, or `undefined` if never stored.
+ * @returns `'check'` or `'time'` for whichever rule invalidated the key first, `null` if neither did.
  */
+export function getInvalidationReason<T>(
+    config: InvalidationConfig<T> | null,
+    key: string,
+    getValue: () => { has: boolean; value?: T },
+    timestamp: number | undefined,
+): Exclude<InvalidationReason, 'forced'> | null {
+    if (!config) {
+        return null;
+    }
+
+    if (config.invalidationCheck) {
+        const { has, value } = getValue();
+        if (has && config.invalidationCheck(key, value, timestamp ?? 0)) {
+            return 'check';
+        }
+    }
+
+    const expirationMs = config.expirationMs;
+    if (expirationMs != null && expirationMs > 0 && timestamp != null) {
+        if (Date.now() - timestamp > expirationMs) {
+            return 'time';
+        }
+    }
+
+    return null;
+}
+
+/** {@link getInvalidationReason}, collapsed to a boolean. */
 export function isInvalidated<T>(
     config: InvalidationConfig<T> | null,
     key: string,
     getValue: () => { has: boolean; value?: T },
     timestamp: number | undefined,
 ): boolean {
-    if (!config) {
-        return false;
-    }
-
-    const expirationMs = config.expirationMs;
-    if (expirationMs != null && expirationMs > 0 && timestamp != null) {
-        if (Date.now() - timestamp > expirationMs) {
-            return true;
-        }
-    }
-
-    if (config.invalidationCheck) {
-        const { has, value } = getValue();
-        if (has && config.invalidationCheck(key, value, timestamp ?? 0)) {
-            return true;
-        }
-    }
-
-    return false;
+    return getInvalidationReason(config, key, getValue, timestamp) != null;
 }
 
 

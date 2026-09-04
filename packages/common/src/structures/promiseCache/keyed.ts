@@ -1,6 +1,6 @@
 import type { ILazyPromise, LoadingStates, LoadingStateStrategy, PendingLoadState } from '../../lazy/types.js';
 import { PromiseCache } from './cache.js';
-import type { IControllablePromiseCache, PromiseCacheFetcher } from './types.js';
+import type { IControllablePromiseCache, PromiseCacheFetcher, PromiseCacheKeyState } from './types.js';
 
 /**
  * Wraps a {@link PromiseCache} for a non-string key type `K`, translating ids to/from the string keys the inner cache uses.
@@ -97,6 +97,11 @@ export class KeyedPromiseCache<
 
     getIsValid(id: TKey): boolean {
         return this._cache.getIsValid(this._toKey(id));
+    }
+
+    /** {@link PromiseCache.getState} */
+    getState(id: TKey): PromiseCacheKeyState {
+        return this._cache.getState(this._toKey(id));
     }
 
     hasKey(id: TKey): boolean {
