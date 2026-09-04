@@ -362,8 +362,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this._assertKey(key);
 
         const hasCached = this._itemsCache.has(key);
-        const state = this.getState(key);
-        const isInvalidated = state.invalidatedBy != null;
+        const isInvalidated = this.getIsInvalidated(key);
 
         // return cached item if it's not invalidated
         if (hasCached && !isInvalidated) {
@@ -387,7 +386,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return Promise.resolve(this._getInitialValue(key));
         }
 
-        return this._startFetch(key, false, passivePendingKind(hasCached), state);
+        return this._startFetch(key, false, passivePendingKind(hasCached));
     }
 
     refresh(key: TKey): Promise<T | TInitial> {
@@ -659,12 +658,11 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * @param key The cache key.
      * @param refreshing `true` when the attempt was started via `refresh()`.
      * @param pending The pending kind to record for the duration of the attempt.
-     * @param state The key's snapshot to hand the fetch chain; taken now when omitted.
      * @returns A promise resolving to the fetched/refreshed value, or the stale value on error.
      */
-    protected _startFetch(key: TKey, refreshing: boolean, pending: PendingLoadState, state?: PromiseCacheKeyState): Promise<T | TInitial> {
+    protected _startFetch(key: TKey, refreshing: boolean, pending: PendingLoadState): Promise<T | TInitial> {
         return this._transaction(() => {
-            const attempt = this._beginAttempt(key, refreshing, pending, state);
+            const attempt = this._beginAttempt(key, refreshing, pending);
             const promise = this._settleFetch(key, attempt);
             this.setPromise(key, promise);
             return promise;
@@ -674,10 +672,10 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Marks the key pending and invokes the fetch chain — the synchronous half of an attempt.
      *
-     * The state the chain sees dates from before `setStatus` and before the forced-expiry mark is consumed, whether it was passed in or taken here.
+     * The state the chain sees dates from before `setStatus` and before the forced-expiry mark is consumed.
      */
-    private _beginAttempt(key: TKey, refreshing: boolean, pending: PendingLoadState, state?: PromiseCacheKeyState): FetchAttempt<T> {
-        const attemptState = state ?? this.getState(key);
+    private _beginAttempt(key: TKey, refreshing: boolean, pending: PendingLoadState): FetchAttempt<T> {
+        const attemptState = this.getState(key);
 
         this.setStatus(key, pending);
         this.onBeforeFetch(key);
