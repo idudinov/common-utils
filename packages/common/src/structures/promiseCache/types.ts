@@ -79,9 +79,11 @@ export interface FetchRequest<T, TKey extends string = string> {
     readonly context: FetchContext;
 
     /**
-     * Runs the next handler inward and returns its result; the constructor's fetcher runs when none is left.
+     * Runs the next handler inward and returns its result.
      *
-     * Calling it more than once re-runs the inner chain on this attempt's {@link FetchRequest.context}.
+     * Reaches:
+     * - the constructor's fetcher, when no handler is left
+     * - the inner chain again, on this attempt's {@link FetchRequest.context}, when called more than once
      *
      * @param overrides Values the handlers inward see in place of this request's own, see {@link FetchOverrides}. The context and state are always carried through.
      */
@@ -116,7 +118,7 @@ export interface PromiseCacheRemovedEvent<T, TKey extends string = string> exten
 /** Why a key's cached value is not valid. */
 export type InvalidationReason = 'forced' | 'time' | 'check';
 
-/** The return type of {@link IPromiseCache.getState}. */
+/** A key's state at a single moment. */
 export type PromiseCacheKeyState = {
     /** {@link IPromiseCache.hasKey} */
     hasKey: boolean;

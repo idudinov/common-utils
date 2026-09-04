@@ -35,7 +35,7 @@ const defaultStorageProvider: PromiseCacheStorageProvider = {
     createValue: <V>(initial: V) => new Model<V>(initial),
 };
 
-/** Sync half of a fetch attempt: the running promise, the version it started at, and its context. */
+/** Sync half of a fetch attempt. */
 interface FetchAttempt<T> {
     factoryPromise: Promise<T>;
     version: number;
@@ -652,9 +652,8 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         }
     }
 
-
     /**
-     * Starts a fetch attempt for `key` as one transaction: snapshot, mark pending, invoke the fetch chain, and store the resulting promise.
+     * Starts a fetch attempt for `key`, as one transaction.
      *
      * @param key The cache key.
      * @param refreshing `true` when the attempt was started via `refresh()`.

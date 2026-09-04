@@ -173,10 +173,7 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
         context[FromStorage] = true;
     }
 
-    /**
-     * Drops a fetch attempt's {@link markServedFromStorage} mark.
-     * A wrapper that re-issues an attempt on the same context relies on this to keep a later network result writable.
-     */
+    /** Drops a fetch attempt's {@link markServedFromStorage} mark. */
     protected clearServedFromStorage(context: FetchContext): void {
         delete context[FromStorage];
     }
