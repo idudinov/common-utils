@@ -35,6 +35,13 @@ const defaultStorageProvider: PromiseCacheStorageProvider = {
     createValue: <V>(initial: V) => new Model<V>(initial),
 };
 
+/** Sync half of a fetch attempt: the running promise, the version it started at, and its context. */
+interface FetchAttempt<T> {
+    factoryPromise: Promise<T>;
+    version: number;
+    context: FetchContext;
+}
+
 /**
  * Caches items by a string key, resolved by an async fetcher (`Promise`).
  *
@@ -311,6 +318,13 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         return this._itemsCache.has(key) && !this.getIsInvalidated(key);
     }
 
+    /**
+     * A snapshot of everything the cache knows about `key`.
+     *
+     * Guarantees:
+     * - a new object on every call, computed fresh, never a cached or stable reference
+     * - `invalidationCheck` (if configured) runs at most once, shared across `isValid` and `invalidatedBy`
+     */
     getState(key: TKey): PromiseCacheKeyState {
         const invalidatedBy = this.getInvalidatedBy(key);
         return {
@@ -319,8 +333,6 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             isValid: this._itemsCache.has(key) && invalidatedBy == null,
             invalidatedBy,
             error: this.getLastError(key),
-            pendingState: this.getPendingState(key),
-            isLoading: this.getIsLoading(key),
             stampedAt: this._timestamps.get(key),
         };
     }
@@ -374,12 +386,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return Promise.resolve(this._getInitialValue(key));
         }
 
-        return this._transaction(() => {
-            this.setStatus(key, passivePendingKind(hasCached));
-            const promise = this._doFetchAsync(key, false);
-            this.setPromise(key, promise);
-            return promise;
-        });
+        return this._startFetch(key, false, passivePendingKind(hasCached));
     }
 
     refresh(key: TKey): Promise<T | TInitial> {
@@ -387,12 +394,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
         const current = this._itemsStatus.get(key) || null;
 
-        return this._transaction(() => {
-            this.setStatus(key, refreshPendingKind(current, this._itemsCache.has(key)));
-            const promise = this._doFetchAsync(key, true);
-            this.setPromise(key, promise);
-            return promise;
-        });
+        return this._startFetch(key, true, refreshPendingKind(current, this._itemsCache.has(key)));
     }
 
     hasKey(key: TKey) {
@@ -652,7 +654,55 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
 
 
     /**
-     * Unified fetch method with "latest wins" semantics.
+     * Starts a fetch attempt for `key` as one transaction: snapshot, mark pending, invoke the fetch chain, and store the resulting promise.
+     *
+     * @param key The cache key.
+     * @param refreshing `true` when the attempt was started via `refresh()`.
+     * @param pending The pending kind to record for the duration of the attempt.
+     * @returns A promise resolving to the fetched/refreshed value, or the stale value on error.
+     */
+    protected _startFetch(key: TKey, refreshing: boolean, pending: PendingLoadState): Promise<T | TInitial> {
+        return this._transaction(() => {
+            const attempt = this._beginAttempt(key, refreshing, pending);
+            const promise = this._settleFetch(key, attempt);
+            this.setPromise(key, promise);
+            return promise;
+        });
+    }
+
+    /**
+     * Snapshots the key's state, marks it pending, and invokes the fetch chain — the synchronous half of an attempt.
+     *
+     * The snapshot is taken before `setStatus` and before the forced-expiry mark is consumed.
+     */
+    private _beginAttempt(key: TKey, refreshing: boolean, pending: PendingLoadState): FetchAttempt<T> {
+        const state = this.getState(key);
+
+        this.setStatus(key, pending);
+        this.onBeforeFetch(key);
+
+        // An attempt consumes the forced staleness: after a failed fetch the key follows the
+        // configured invalidation policy rather than retrying on every read.
+        this._timestamps.consumeForcedExpiry(key);
+
+        const context: FetchContext = {};
+        let factoryResult: Promise<T> | T;
+        try {
+            factoryResult = this._invokeFetch(this._fetchers, { key, refreshing, state, context });
+        } catch (err) {
+            // Re-throwing the original error from a synchronous fetcher or override layer
+            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+            factoryResult = Promise.reject(err);
+        }
+        const factoryPromise = Promise.resolve(factoryResult);
+
+        this._activeFetchPromises.set(key, factoryPromise);
+
+        return { factoryPromise, version: this._version, context };
+    }
+
+    /**
+     * Awaits a fetch attempt and resolves "latest wins" semantics.
      *
      * Resolves ties by:
      * - tracking the active factory promise per key via `_activeFetchPromises`
@@ -660,34 +710,9 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * - preserving the stale cached value on error
      *
      * The error is recorded only once classification is known — a superseded or cancelled fetch's error is discarded rather than overwriting a newer fetch's already-settled state.
-     *
-     * @param key The cache key.
-     * @returns A promise resolving to the fetched/refreshed value, or the stale value on error.
      */
-    protected async _doFetchAsync(key: TKey, refreshing: boolean): Promise<T | TInitial> {
-        const context: FetchContext = {};
-
-        const { factoryPromise, v } = this._transaction(() => {
-            this.onBeforeFetch(key);
-
-            // An attempt consumes the forced staleness: after a failed fetch the key follows the
-            // configured invalidation policy rather than retrying on every read.
-            this._timestamps.consumeForcedExpiry(key);
-
-            let factoryResult: Promise<T> | T;
-            try {
-                factoryResult = this._invokeFetch(this._fetchers, { key, refreshing, context });
-            } catch (err) {
-                // Re-throwing the original error from a synchronous fetcher or override layer
-                // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
-                factoryResult = Promise.reject(err);
-            }
-            const promise = Promise.resolve(factoryResult);
-
-            this._activeFetchPromises.set(key, promise);
-
-            return { factoryPromise: promise, v: this._version };
-        });
+    private async _settleFetch(key: TKey, attempt: FetchAttempt<T>): Promise<T | TInitial> {
+        const { factoryPromise, version, context } = attempt;
 
         let fetchResult: { ok: true; value: T } | { ok: false; error: unknown };
         try {
@@ -696,7 +721,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             fetchResult = { ok: false, error: err };
         }
 
-        if (v !== this._version) {
+        if (version !== this._version) {
             this._transaction(() => {
                 // Only delete if this fetch is still the active one — a fresh fetch started
                 // after clear() may already own this key's entry.
@@ -774,7 +799,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * - index 0 holds the constructor's fetcher, which takes a key rather than a request, so no handler can exhaust the chain
      * - an empty one fails the attempt on the call, rather than resolving `undefined` as if it were a `T`
      *
-     * @param attempt Everything a request carries except `next`, which applies {@link FetchOverrides} over it — the context always carries through.
+     * @param attempt Everything a request carries except `next`, which applies {@link FetchOverrides} over it — the context and state always carry through.
      */
     private _invokeFetch(handlers: readonly FetchRequestHandler<T, TKey>[], attempt: Omit<FetchRequest<T, TKey>, 'next'>): Promise<T> | T {
         const inner = handlers.slice(0, -1);

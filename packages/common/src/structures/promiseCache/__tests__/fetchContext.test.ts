@@ -1,6 +1,6 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { FetchContext } from '../index.js';
+import type { FetchContext, PromiseCacheKeyState } from '../index.js';
 import { PromiseCache } from '../index.js';
 import { delayedValue } from './helpers.js';
 
@@ -269,5 +269,62 @@ describe('PromiseCache fetch request and context', () => {
             });
 
         await expect(cache.get('a')).resolves.toBe('fetched-a');
+    });
+
+    test("request.state.invalidatedBy is 'forced' after expire()", async () => {
+        const observed: (string | null)[] = [];
+        const cache = new PromiseCache<string>(async key => `fetched-${key}`)
+            .extend({
+                overrideFetcher: () => request => {
+                    observed.push(request.state.invalidatedBy);
+                    return request.next();
+                },
+            });
+
+        await cache.get('a');
+        cache.expire('a');
+        await cache.get('a');
+
+        expect(observed).toEqual([null, 'forced']);
+    });
+
+    test('request.state.hasKey is false on a cold read, true on a revalidation', async () => {
+        const observed: boolean[] = [];
+        const cache = new PromiseCache<string>(async key => `fetched-${key}`)
+            .extend({
+                overrideFetcher: () => request => {
+                    observed.push(request.state.hasKey);
+                    return request.next();
+                },
+            });
+
+        await cache.get('a');
+        await cache.refresh('a');
+
+        expect(observed).toEqual([false, true]);
+    });
+
+    test('state reaches an inner handler unchanged through next(), including next({ key })', async () => {
+        let outerState: PromiseCacheKeyState | undefined;
+        let innerState: PromiseCacheKeyState | undefined;
+
+        const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+        const cache = new PromiseCache<string>(fetcher)
+            .extend({
+                overrideFetcher: () => request => {
+                    outerState = request.state;
+                    return request.next({ key: 'b' });
+                },
+            })
+            .extend({
+                overrideFetcher: () => request => {
+                    innerState = request.state;
+                    return request.next();
+                },
+            });
+
+        await expect(cache.get('a')).resolves.toBe('fetched-b');
+        expect(fetcher).toHaveBeenCalledWith('b', false);
+        expect(innerState).toBe(outerState);
     });
 });

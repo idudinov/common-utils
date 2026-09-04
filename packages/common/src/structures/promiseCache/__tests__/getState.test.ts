@@ -22,8 +22,6 @@ describe('PromiseCache getState', () => {
             isValid: false,
             invalidatedBy: null,
             error: null,
-            pendingState: null,
-            isLoading: null,
             stampedAt: undefined,
         });
     });
@@ -40,13 +38,11 @@ describe('PromiseCache getState', () => {
             isValid: true,
             invalidatedBy: null,
             error: null,
-            pendingState: null,
-            isLoading: false,
         });
         expect(state.stampedAt).toBe(Date.now());
     });
 
-    test('a key mid-fetch reports its pending state and no value yet', async () => {
+    test('a key mid-fetch reports no value yet', async () => {
         const cache = new PromiseCache<string>(async (id: string) => delayedValue(50, id));
 
         const p = cache.get('a');
@@ -58,8 +54,6 @@ describe('PromiseCache getState', () => {
             isValid: false,
             invalidatedBy: null,
             error: null,
-            pendingState: 'loading',
-            isLoading: true,
         });
         expect(state.stampedAt).toBeUndefined();
 

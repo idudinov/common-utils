@@ -5,7 +5,6 @@ import type {
     FetchRequestHandler,
     IControllablePromiseCache,
     PromiseCacheEvent,
-    PromiseCacheKeyState,
     PromiseCacheRemovedEvent,
     PromiseCacheStoredEvent,
 } from '../types.js';
@@ -63,7 +62,7 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
         return (request: FetchRequest<T, TKey>) => {
             const { key, context } = request;
 
-            if (this.shouldReadStorage(target.getState(key), request, target)) {
+            if (this.shouldReadStorage(request, target)) {
                 const cached = this.readFromStorage(key);
                 if (cached != null) {
                     this.markServedFromStorage(context);
@@ -99,19 +98,25 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
      * Decides:
      * - `false` whenever `request.refreshing` is `true`
      * - for a key holding no value, `true` unless an error is stored for it
+     * - for a key stale-marked by `expire()`, per {@link readOnForced}
      * - otherwise, per the configured {@link StorageCacheReadOn}
      */
     protected shouldReadStorage(
-        state: PromiseCacheKeyState,
         request: FetchRequest<T, TKey>,
         _target: IControllablePromiseCache<T, TKey, T | undefined>,
     ): boolean {
+        const { state } = request;
+
         if (request.refreshing) {
             return false;
         }
 
         if (!state.hasValue) {
             return state.error == null;
+        }
+
+        if (state.invalidatedBy === 'forced') {
+            return this.readOnForced;
         }
 
         switch (this.readOn) {
@@ -123,6 +128,11 @@ export class StorageCacheExtension<T, TKey extends string = string> implements I
             default:
                 return false;
         }
+    }
+
+    /** Whether a key stale-marked by `expire()` may be served from `storage`. */
+    protected get readOnForced(): boolean {
+        return false;
     }
 
     /** Maps a cache key to its storage key, identity by default. */

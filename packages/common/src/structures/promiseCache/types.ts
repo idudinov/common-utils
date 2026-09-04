@@ -73,6 +73,9 @@ export interface FetchRequest<T, TKey extends string = string> {
     /** `true` when the attempt was started via `refresh()`. */
     readonly refreshing: boolean;
 
+    /** The key's state when the attempt started, before it was marked pending. */
+    readonly state: PromiseCacheKeyState;
+
     readonly context: FetchContext;
 
     /**
@@ -80,7 +83,7 @@ export interface FetchRequest<T, TKey extends string = string> {
      *
      * Calling it more than once re-runs the inner chain on this attempt's {@link FetchRequest.context}.
      *
-     * @param overrides Values the handlers inward see in place of this request's own, see {@link FetchOverrides}. The context is always carried through.
+     * @param overrides Values the handlers inward see in place of this request's own, see {@link FetchOverrides}. The context and state are always carried through.
      */
     next(overrides?: FetchOverrides<TKey>): Promise<T> | T;
 }
@@ -129,12 +132,6 @@ export type PromiseCacheKeyState = {
 
     /** {@link IPromiseCache.getLastError} */
     error: unknown;
-
-    /** {@link IPromiseCache.getPendingState} */
-    pendingState: PendingLoadState | null;
-
-    /** {@link IPromiseCache.getIsLoading} */
-    isLoading: LoadingStates;
 
     /** Resolve time of the current value, `undefined` if never stamped. */
     stampedAt: number | undefined;
@@ -186,15 +183,6 @@ export interface IPromiseCache<T, TKey = string, TInitial extends T | undefined 
 
     /** Returns whether the cached item for the specified key is valid (not expired and not invalidated by callback). */
     getIsValid(key: TKey): boolean;
-
-    /**
-     * A snapshot of everything the cache knows about `key`.
-     *
-     * Guarantees:
-     * - a new object on every call, computed fresh, never a cached or stable reference
-     * - `invalidationCheck` (if configured) runs at most once, shared across `isValid` and `invalidatedBy`
-     */
-    getState(key: TKey): PromiseCacheKeyState;
 
     /** Returns true if the item is cached or fetching was initiated. Does not initiate fetching. */
     hasKey(key: TKey): boolean;

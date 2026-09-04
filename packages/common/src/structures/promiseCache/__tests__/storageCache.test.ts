@@ -272,6 +272,26 @@ describe('PromiseCache storage cache extension', () => {
             await expect(cache.get('a')).resolves.toBe('fetched-a');
             expect(fetcher).toHaveBeenCalledTimes(1);
         });
+
+        test('expire() with a lapsed expirationMs reaches the fetcher, not the box', async () => {
+            const storage = new FakeStorage<string>();
+
+            const fetcher = vi.fn(async (key: string) => `fetched-${key}`);
+            const cache = new PromiseCache<string>(fetcher)
+                .extend(createStorageCacheExtension(storage))
+                .useInvalidation({ expirationMs: 50 });
+
+            await expect(cache.get('a')).resolves.toBe('fetched-a');
+            expect(fetcher).toHaveBeenCalledTimes(1);
+
+            cache.expire('a');
+            storage.map.set('a', 'from-storage'); // shows up out-of-band — must be bypassed, expire() means network
+
+            await vi.advanceTimersByTimeAsync(60); // expirationMs also lapses before the next read
+
+            await expect(cache.get('a')).resolves.toBe('fetched-a');
+            expect(fetcher).toHaveBeenCalledTimes(2);
+        });
     });
 
     test("readOn: 'invalid' — a value-based invalidationCheck re-reads the box instead of reaching the fetcher", async () => {

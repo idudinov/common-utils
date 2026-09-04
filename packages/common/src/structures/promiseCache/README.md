@@ -125,7 +125,7 @@ Starting a fetch consumes the forced staleness, so a failed revalidation doesn't
 It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.
 
-`getState(key)` returns a snapshot of everything the cache knows about a key in one object, including `invalidatedBy` — `'forced'`, `'time'`, `'check'`, or `null` — which no single-field getter exposes.
+`getState(key)` returns a snapshot of the key's state in one object, including `invalidatedBy` (`'forced'`, `'time'`, `'check'`, or `null`), which no single-field getter exposes. It's a concrete method on `PromiseCache` and `KeyedPromiseCache`, not part of `IPromiseCache`.
 
 Max-items eviction is not core — see `createEvictionExtension` below.
 
@@ -157,8 +157,9 @@ Lifecycle hook exceptions are caught and logged; they never break the cache or o
 
 ### Fetch requests and context
 
-Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, context, next }`.
+Internally the fetcher is a `FetchRequestHandler`: `(request: FetchRequest) => Promise<T> | T`, where `request` is `{ key, refreshing, state, context, next }`.
 The constructor's plain `(key, refreshing)` fetcher sits innermost in the chain and is called with those two values.
+`state` is the key's `getState()` snapshot taken at the start of the attempt, before it was marked pending and before a forced-expiry mark was consumed.
 
 `overrideFetcher` adds a handler to the chain, newest-outermost. A handler:
 
@@ -168,7 +169,7 @@ The constructor's plain `(key, refreshing)` fetcher sits innermost in the chain 
 - may call `next()` more than once, to retry the inner chain within the same attempt
 - fails the fetch on a throw or rejection — stored as the key's fetch error
 
-The context is never a handler's to supply, so a mark written on it always reaches that attempt's store.
+`next()` carries `context` and `state` through unchanged, so a mark written on `context` reaches that attempt's store.
 
 `context` is a per-attempt scratchpad:
 
@@ -264,18 +265,29 @@ cache.extend(createStorageCacheExtension(myStorage, {
 }));
 ```
 
-Reads and writes:
+Reads:
 
-- a fetch attempt checks storage before the fetcher runs, and a hit is served without calling it
-- a hit is not written back, so a wrapper stamping metadata on write (e.g. an expiry) keeps its stamp
-- anything else falls through to the fetcher, and its result is written to storage, as is `set()`
-- every per-key removal removes from storage
-- a throw while reading becomes the key's fetch error; a throw while writing or removing is swallowed
+- a fetch attempt gated open checks `storage` before the fetcher runs
+- a hit is served without calling the fetcher and without writing back
+- skipping that write-back is what lets a wrapper stamping metadata on write (e.g. an expiry) keep its stamp
+- anything else falls through to the fetcher, and the result is written to `storage`
+
+Writes:
+
+- `set()` writes to storage
+- every per-key removal removes from it
+
+Errors:
+
+- a throwing `getValue` becomes the key's fetch error
+- `setValue`/`removeValue` errors are logged and swallowed
 
 `readOn` decides how stale an in-memory value has to be before a read consults storage, which is what lets two tiers carry different lifetimes.
 A short in-memory window over a longer-lived box — `'stale'`, the default — revisits the box on each lapse, and reaches the fetcher only once the box has lapsed too.
 `'absent'` reads the box once per key and never again.
 `'invalid'` also consults it for a value that `invalidationCheck` rejected, which then serves that same rejected value on every read unless something else writes a fresh one.
+
+`expire(key)` always reaches the fetcher, under every `readOn` — a key marked `'forced'` never consults storage. `delete(key)` is the operation that also drops the key from the box.
 
 An async backend can still be used behind this extension: wrap it in a sync in-memory facade that hydrates from the backend up front and flushes writes through a queue.
 

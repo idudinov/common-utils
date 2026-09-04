@@ -99,6 +99,7 @@ export class KeyedPromiseCache<
         return this._cache.getIsValid(this._toKey(id));
     }
 
+    /** {@link PromiseCache.getState} */
     getState(id: TKey): PromiseCacheKeyState {
         return this._cache.getState(this._toKey(id));
     }
