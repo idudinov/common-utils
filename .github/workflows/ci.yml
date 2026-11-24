@@ -19,13 +19,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.1.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6.5.0
         with:
-          node-version-file: '.nvmrc'
+          node-version-file: 'package.json'
           cache: 'npm'
 
       - name: Install packages
@@ -50,3 +50,23 @@ jobs:
         run: npm run check:versions
         env:
           BASE_REF: origin/${{ github.base_ref }}
+
+  lockfile:
+    name: Verify workflow lockfile
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install the lockfile extension
+        run: gh extension install github/gh-actions-lock --pin v0.5.1
+
+      - name: Verify the lockfile
+        run: gh actions-lock --verify

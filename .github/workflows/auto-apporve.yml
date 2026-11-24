@@ -13,4 +13,4 @@ jobs:
     # Only run if the PR is opened by the owner and the label is "self-review"
     if: github.event.label.name == 'self-review' && github.event.pull_request.user.login == 'idudinov'
     steps:
-      - uses: hmarr/auto-approve-action@v4
+      - uses: hmarr/auto-approve-action@v4.0.0

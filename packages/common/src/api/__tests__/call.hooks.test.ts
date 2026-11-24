@@ -1,6 +1,7 @@
 import { type Mock } from 'vitest';
 import { buildApiCaller, type IRequestConfig } from '../call.js';
 import { ApiEndpoint, type IEndpointInfo } from '../endpoint.js';
+import { IEndpointBody } from '../extensions/body.js';
 import { IEndpointInputContentType } from '../extensions/contentType.js';
 import { IEndpointHooks } from '../extensions/endpointHooks.js';
 import { IEndpointInputValidation } from '../extensions/validation.js';
@@ -49,6 +50,59 @@ describe('api/call/hooks', () => {
             url: '/',
             data: { id: '123' },
             headers: { 'Content-Type': 'multipart/form-data' },
+        });
+    });
+
+    describe('chaining', () => {
+        test('beforeRequest | a returned config copy reaches the next hooks, and every hook gets one config object', async () => {
+            const request = vi.fn();
+            const seen = vi.fn();
+
+            const caller = buildApiCaller({
+                request: async <TIn, TOut>(input: IRequestConfig<IEndpointInfo, TIn>) => {
+                    request(input);
+                    return { data: null as TOut };
+                },
+                hooks: [
+                    {
+                        beforeRequest: config => ({ ...config, headers: { ...config.headers, 'X-Trace': '1' } }),
+                    },
+                    {
+                        beforeRequest: config => {
+                            seen(config);
+                        },
+                    },
+                    IEndpointBody.createHooks(),
+                ],
+            });
+
+            const endpoint = ApiEndpoint.create.extend(IEndpointBody.extender)()
+                .post<{ tag: string }, void>()
+                .withBody(input => JSON.stringify(input.tag));
+
+            await caller(endpoint, { tag: 'news' });
+
+            const sent = request.mock.lastCall![0] as IRequestConfig<IEndpointInfo>;
+            expect(sent.data).toBe('"news"');
+            expect(sent.headers).toEqual({ 'X-Trace': '1' });
+            expect(seen.mock.lastCall![0]).toBe(sent);
+        });
+
+        test('afterResponse | a returned response replaces the received one for the next hook and for the caller', async () => {
+            const seen = vi.fn();
+
+            const caller = buildApiCaller({
+                request: async <TIn, TOut>(_input: IRequestConfig<IEndpointInfo, TIn>) => ({ data: 'received' as TOut }),
+                hooks: [
+                    { afterResponse: vi.fn().mockReturnValue({ data: 'replaced' }) },
+                    { afterResponse: seen },
+                ],
+            });
+
+            const endpoint = ApiEndpoint.create().get<string>();
+
+            await expect(caller(endpoint)).resolves.toBe('replaced');
+            expect(seen).toHaveBeenCalledWith(expect.anything(), { data: 'replaced' });
         });
     });
 
@@ -112,6 +166,30 @@ describe('api/call/hooks', () => {
 
         expect(validation2).toHaveBeenCalledWith({ id: 123 });
         expect(hook).toHaveBeenCalled();
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    test('beforeConfig | validation on a finalized endpoint', async () => {
+        const request = vi.fn();
+        const validation = vi.fn((body: { id: string | number }) => {
+            if (typeof body.id !== 'string') {
+                throw new Error('Validation error');
+            }
+        });
+
+        const caller = buildApiCaller({
+            request,
+            hooks: IEndpointInputValidation.createHooks(),
+        });
+
+        const endpoint = ApiEndpoint.create.extend(IEndpointInputValidation.extender)()
+            .post<{ id: string | number }, { name: string }>()
+            .withValidation(validation)
+            .finalize();
+
+        await expect(caller(endpoint, { id: 123 })).rejects.toThrow('Validation error');
+
+        expect(validation).toHaveBeenCalledWith({ id: 123 });
         expect(request).not.toHaveBeenCalled();
     });
 

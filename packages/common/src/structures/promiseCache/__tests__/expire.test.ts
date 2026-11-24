@@ -392,7 +392,7 @@ describe('PromiseCache.expire', () => {
         expect(attempt).toBe(2);
     });
 
-    test('expire() on an errored key under useInvalidation(expirationMs) triggers one retry, not a TTL loop', async () => {
+    test('expire() on an errored key under useInvalidation(expirationMs) retries at once, then reads retry once per lifetime', async () => {
         let attempt = 0;
         const cache = new PromiseCache<string>(async () => {
             attempt++;
@@ -404,12 +404,15 @@ describe('PromiseCache.expire', () => {
 
         cache.expire('a');
 
-        await cache.get('a'); // one retry — the mark is consumed at invocation
+        await cache.get('a'); // the mark is consumed at invocation, so the wait does not apply
         expect(attempt).toBe(2);
 
-        // sticky again: further reads, even much later, must not turn into a TTL-paced loop
-        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(99);
         await cache.get('a');
         expect(attempt).toBe(2);
+
+        await vi.advanceTimersByTimeAsync(2);
+        await cache.get('a');
+        expect(attempt).toBe(3);
     });
 });

@@ -1,3 +1,4 @@
+export * from './body.js';
 export * from './contentType.js';
 export * from './formData.js';
 export * from './validation.js';

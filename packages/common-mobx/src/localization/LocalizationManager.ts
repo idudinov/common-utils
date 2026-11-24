@@ -2,6 +2,10 @@ import { observable, makeObservable, action } from 'mobx';
 import type { AnyObject } from '@zajno/common/types';
 import { LocalizationManager as _LocalizationManager, type StringsDataSource } from '@zajno/common/localization';
 
+/** @import { LocaleContext, LocalizedStrings } from "@zajno/common/localization" */
+/** @import { mobxStorageProvider } from "../storage" */
+
+/** @deprecated Use {@link LocalizedStrings} with a {@link LocaleContext} configured with {@link mobxStorageProvider} instead. */
 export class LocalizationManager<TLocaleType extends string, TStrings extends AnyObject> extends _LocalizationManager<TLocaleType, TStrings> {
     constructor(
         dataSource: StringsDataSource<TLocaleType, TStrings>,

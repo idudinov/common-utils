@@ -254,6 +254,27 @@ describe('api/call', () => {
         }
     });
 
+    test('input type with a query declared as an interface', () => {
+        const caller = buildApiCaller({
+            request: async <TIn, TOut>(input: IRequestConfig<IEndpointInfo, TIn>) => {
+                return { status: 200, data: { input: input.data } as TOut };
+            },
+        });
+
+        interface IPage { page: number }
+
+        const endpoint = ApiEndpoint.create()
+            .post<null, string>()
+            .withQuery<IPage>('page');
+
+        // @ts-expect-error - page is missing, as it is for a query declared as a type literal
+        caller(endpoint, {});
+        // @ts-expect-error - page is not a number
+        caller(endpoint, { page: true });
+
+        caller(endpoint, { page: 1 });
+    });
+
     test('output type', () => {
         const caller = buildApiCaller({
             request: async <TIn, TOut>(input: IRequestConfig<IEndpointInfo, TIn>) => {

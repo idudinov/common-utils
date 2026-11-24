@@ -8,7 +8,7 @@ All runtime dependencies are peer.
 
 ## Contents
 
-* [Localization](./src/localization/LocalizationManager.ts) – attempt to have another simple runtime i18n manager
+* [Localization](../common/src/localization/README.md) – `LocaleContext.Shared.configure({ storage: mobxStorageProvider })` makes every group of `@zajno/common`'s localized strings observable; the [`LocalizationManager`](./src/localization/LocalizationManager.ts) here is deprecated.
 
 * [ViewModels]('./src/viewModels/index.ts') – useful for MVVM pattern
 
@@ -26,7 +26,7 @@ All runtime dependencies are peer.
 
 ## Usage
 
-ESM-only as of `2.1.0` (no CJS build). Subpath-only imports (no root import) by design, for tree-shaking. Requires Node `>=20`.
+ESM-only as of `2.1.0` (no CJS build). Subpath-only imports (no root import) by design, for tree-shaking. Requires Node `>=22`.
 
 Install:
 

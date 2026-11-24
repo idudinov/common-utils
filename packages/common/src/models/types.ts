@@ -10,7 +10,8 @@ export interface IValueModel<TValue> extends IValueModelReadonly<TValue> {
 /** Supplies the value box backing a consumer's internal state. */
 export interface ValueStorageProvider {
     /**
-     * Creates a single-value box initialized to `initial`. Called during construction.
+     * Creates a single-value box initialized to `initial`.
+     * May be called at any time after construction, including inside a read of another box.
      * Must be identity-preserving for non-function values; function-typed values need not be supported.
      */
     createValue<V>(initial: V): IValueModel<V>;
