@@ -115,6 +115,30 @@ describe('api/call/hooks', () => {
         expect(request).not.toHaveBeenCalled();
     });
 
+    test('beforeConfig | validation on a finalized endpoint', async () => {
+        const request = vi.fn();
+        const validation = vi.fn((body: { id: string | number }) => {
+            if (typeof body.id !== 'string') {
+                throw new Error('Validation error');
+            }
+        });
+
+        const caller = buildApiCaller({
+            request,
+            hooks: IEndpointInputValidation.createHooks(),
+        });
+
+        const endpoint = ApiEndpoint.create.extend(IEndpointInputValidation.extender)()
+            .post<{ id: string | number }, { name: string }>()
+            .withValidation(validation)
+            .finalize();
+
+        await expect(caller(endpoint, { id: 123 })).rejects.toThrow('Validation error');
+
+        expect(validation).toHaveBeenCalledWith({ id: 123 });
+        expect(request).not.toHaveBeenCalled();
+    });
+
     test('merge/full', async () => {
         const request = vi.fn();
 

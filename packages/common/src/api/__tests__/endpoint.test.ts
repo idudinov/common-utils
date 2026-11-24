@@ -1,10 +1,13 @@
-import { ApiEndpoint, type IEndpointInfo } from '../endpoint.js';
+import { createLazy } from '../../lazy/light.js';
+import { extendObject } from '../../structures/extendObject.js';
 import { Path } from '../../structures/path/index.js';
-import { EndpointMethods } from '../methods.js';
 import { type Mutable } from '../../types/misc.js';
-import { IEndpointInputContentType } from '../extensions/contentType.js';
-import { IEndpointInputValidation } from '../extensions/validation.js';
 import { buildApiCaller } from '../call.js';
+import { ApiEndpoint, type IEndpointInfo } from '../endpoint.js';
+import { IEndpointInputContentType } from '../extensions/contentType.js';
+import { IEndpointFormData } from '../extensions/formData.js';
+import { IEndpointInputValidation } from '../extensions/validation.js';
+import { EndpointMethods } from '../methods.js';
 
 describe('api/endpoint', () => {
 
@@ -51,6 +54,15 @@ describe('api/endpoint', () => {
         expect(ApiEndpoint.create().withMethod(EndpointMethods.OPTIONS).method).toBe('OPTIONS');
 
         expect(ApiEndpoint.create().delete().method).toBe('DELETE');
+    });
+
+    it('isEndpoint', () => {
+        expect(ApiEndpoint.isEndpoint(ApiEndpoint.create())).toBe(true);
+        expect(ApiEndpoint.isEndpoint(ApiEndpoint.create().finalize())).toBe(true);
+
+        expect(ApiEndpoint.isEndpoint(null)).toBe(false);
+        expect(ApiEndpoint.isEndpoint('GET')).toBe(false);
+        expect(ApiEndpoint.isEndpoint({ method: 'GET' })).toBe(false);
     });
 
     describe('extends', () => {
@@ -127,6 +139,64 @@ describe('api/endpoint', () => {
             expect((finalized as unknown as typeof endpoint).withCustomField).toBeUndefined();
             expect(finalized.customField).toBe('123');
             expect(finalized.path.template(':', { addStart: true })).toBe('/user/:id');
+        });
+    });
+
+    describe('finalize', () => {
+        it('keeps function fields, drops builder methods and stays repeatable', () => {
+            const validate = vi.fn();
+            const errorProcessor = vi.fn();
+            const serializer = vi.fn();
+
+            const endpoint = ApiEndpoint.create
+                .extend(IEndpointInputValidation.extender)
+                .extend(IEndpointFormData.extender)('Upload')
+                .post<{ id: string }, { name: string }>()
+                .withPath(Path.build`/upload/${'id'}`)
+                .withErrors<{ message: string }>(errorProcessor)
+                .withValidation(validate)
+                .asFormData(serializer);
+
+            const functionKeys = (finalized: object) => Object.entries(finalized)
+                .filter(([, value]) => typeof value === 'function')
+                .map(([key]) => key)
+                .sort();
+
+            const finalized = endpoint.finalize();
+
+            expect(finalized.validate).toBe(validate);
+            expect(finalized.errorProcessor).toBe(errorProcessor);
+            expect(finalized.formData).toBe(serializer);
+            expect(functionKeys(finalized)).toEqual(['errorProcessor', 'formData', 'validate']);
+            expect(Object.isFrozen(finalized)).toBe(true);
+            expect(ApiEndpoint.isEndpoint(finalized)).toBe(true);
+
+            const second = endpoint.finalize();
+
+            expect(second).not.toBe(finalized);
+            expect(second).toEqual(finalized);
+        });
+
+        it('copies an extender accessor by the value it has after the path is set', () => {
+            interface IPathTemplate {
+                readonly pathTemplate: string;
+            }
+
+            const create = ApiEndpoint.create.extend<IPathTemplate>(base => {
+                const lazyTemplate = createLazy(
+                    () => (base as IEndpointInfo.IPathAbstract).path?.template(':', { addStart: true }) ?? '',
+                );
+                return extendObject<ApiEndpoint, IPathTemplate>(base, {
+                    pathTemplate: { get: () => lazyTemplate.value, enumerable: true },
+                });
+            });
+
+            const finalized = create()
+                .get<string>()
+                .withPath(Path.build`/user/${'id'}`)
+                .finalize();
+
+            expect(finalized.pathTemplate).toBe('/user/:id');
         });
     });
 

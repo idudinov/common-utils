@@ -1,19 +1,18 @@
 import { Path } from '../structures/path/index.js';
-import { EndpointMethods } from './methods.js';
 import type { Mutable } from '../types/misc.js';
 import type { IEndpointInfo } from './endpoint.types.js';
+import { EndpointMethods } from './methods.js';
 
 /** @import { buildApiCaller } from "./call" */
 
 export type { IEndpointInfo };
 
 /**
- * Defines REST API endpoint.
+ * Defines a REST API endpoint, which a caller such as {@link buildApiCaller} uses to make a request.
  *
- * Endpoint object can be used in a caller method (see {@link buildApiCaller}) to make a request.
- *
- * Basic definition {@link IEndpointInfo} which can be extended with additional properties and chaining mutation methods, see {@link IEndpointInfo.IForm} for example.
-*/
+ * Chained builder methods set its {@link IEndpointInfo} fields.
+ * An extender adds more fields and builder methods, see {@link ApiEndpoint.IBuilderExtender}.
+ */
 export interface ApiEndpoint extends IEndpointInfo.Base {
     /** Applies specified HTTP method */
     withMethod(method: EndpointMethods): this;
@@ -31,7 +30,7 @@ export interface ApiEndpoint extends IEndpointInfo.Base {
     /** Applies a type based on {@link Path.IBuilder} type by accepting arguments for {@link Path.construct} function */
     withPath<P extends readonly Path.BaseInput[]>(...path: P): this & IEndpointInfo.IPath<Path.CombineBuilders<P>>;
 
-    /** Applies query type and also store query keys to make api caller be able to distinguish which keys should be ejected from request body. */
+    /** Applies the query type, and stores the query keys, which the caller moves from the request body to the query string. */
     withQuery<TQ extends object>(...queryKeys: (string & keyof TQ)[]): this & IEndpointInfo.IQuery<TQ>;
 
     /** Applies error type, optionally stores error processor. */
@@ -40,17 +39,59 @@ export interface ApiEndpoint extends IEndpointInfo.Base {
     /** Applies headers type. */
     withHeaders<THeads>(_headersMarker?: THeads): this & IEndpointInfo.IHeaders<THeads>;
 
-    /** Helper chain method for finalizing the type. Can make some runtime optimizations as well. */
+    /** Returns a frozen copy of the endpoint without its builder methods, typed as {@link IEndpointInfo.Finalized}. */
     finalize(): IEndpointInfo.Finalized<this>;
 }
 
 export namespace ApiEndpoint {
 
-    /** Since we don't use class anymore, we need another way to determine an object to be an Endpoint instance. */
+    export interface IBuilder<T extends ApiEndpoint = ApiEndpoint> {
+        (displayName?: string): T;
+
+        extend<TExt>(extender: (base: T) => T & TExt): IBuilder<T & TExt>;
+    }
+
+    /**
+     * Adds builder methods and data fields to an endpoint.
+     *
+     * Finalization:
+     * - Each function the extender adds is a builder method, which {@link ApiEndpoint.finalize} drops.
+     * - Every other field the extender adds is data, which `finalize()` keeps.
+     * - A data field starts as `undefined` or absent, never as a function.
+     */
+    export type IBuilderExtender<T> = <TBase extends ApiEndpoint>(base: TBase) => TBase & T;
+
     const ENDPOINT_OBJ_MARKER = '_ENDPOINT_OBJ_MARKER';
 
-    export function isEndpoint(obj: any): obj is IEndpointInfo {
-        return obj && obj[ENDPOINT_OBJ_MARKER] === true && 'method' in obj;
+    const BUILDER_METHOD_KEYS = Symbol('builderMethodKeys');
+
+    export const create = createBuilder(createBase);
+
+    export function isEndpoint(obj: unknown): obj is IEndpointInfo {
+        return typeof obj === 'object' && obj !== null
+            && (obj as Record<string, unknown>)[ENDPOINT_OBJ_MARKER] === true
+            && 'method' in obj;
+    }
+
+    function getBuilderMethodKeys(endpoint: object): Set<string> {
+        const holder = endpoint as { [BUILDER_METHOD_KEYS]?: Set<string> };
+        let keys = holder[BUILDER_METHOD_KEYS];
+        if (!keys) {
+            keys = new Set();
+            // non-enumerable, so Object.assign and spread leave the record behind
+            Object.defineProperty(endpoint, BUILDER_METHOD_KEYS, { value: keys, enumerable: false });
+        }
+        return keys;
+    }
+
+    function recordBuilderMethods(endpoint: object) {
+        const keys = getBuilderMethodKeys(endpoint);
+        // descriptors, not values: reading a value would run an accessor before the builder methods have set its data
+        for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(endpoint))) {
+            if (typeof descriptor.value === 'function') {
+                keys.add(key);
+            }
+        }
     }
 
     function createBase(displayName?: string): ApiEndpoint {
@@ -60,11 +101,10 @@ export namespace ApiEndpoint {
             method: EndpointMethods.GET,
         };
 
-        (data as any)[ENDPOINT_OBJ_MARKER] = true;
+        Object.assign(data, { [ENDPOINT_OBJ_MARKER]: true });
 
         const res = data as ApiEndpoint;
 
-        // only extension methods
         const ext: Omit<ApiEndpoint, keyof IEndpointInfo> = {
             withMethod(method: EndpointMethods) {
                 data.method = method;
@@ -114,28 +154,15 @@ export namespace ApiEndpoint {
             },
 
             finalize() {
-                const finalized = {} as any;
-                Object.entries(res).forEach(([key, value]) => {
-                    if (value != null && typeof value !== 'function') {
-                        finalized[key] = value;
-                    }
-                });
-                Object.freeze(finalized);
-                return finalized;
+                const methodKeys = getBuilderMethodKeys(res);
+                const fields = Object.entries<unknown>(res).filter(([key, value]) => value != null && !methodKeys.has(key));
+                return Object.freeze(Object.fromEntries(fields)) as IEndpointInfo.Finalized<ApiEndpoint>;
             },
         };
 
         Object.assign(res, ext);
         return res;
     }
-
-    export interface IBuilder<T extends ApiEndpoint = ApiEndpoint> {
-        (displayName?: string): T;
-
-        extend<TExt>(extender: (base: T) => T & TExt): IBuilder<T & TExt>;
-    }
-
-    export type IBuilderExtender<T> = <TBase extends ApiEndpoint>(base: TBase) => TBase & T;
 
     function createBuilder<TBase extends ApiEndpoint, T>(
         base: (displayName?: string) => TBase,
@@ -151,7 +178,9 @@ export namespace ApiEndpoint {
     ): IBuilder<TBase & T> {
         const res = function (displayName?: string) {
             const baseRes = baseFactory(displayName);
-            return extender ? extender(baseRes) : baseRes;
+            const endpoint = extender ? extender(baseRes) : baseRes;
+            recordBuilderMethods(endpoint as object);
+            return endpoint;
         } as IBuilder<TBase & T>;
 
         res.extend = (extender) => {
@@ -163,6 +192,4 @@ export namespace ApiEndpoint {
 
         return res;
     }
-
-    export const create = createBuilder(createBase);
 }
