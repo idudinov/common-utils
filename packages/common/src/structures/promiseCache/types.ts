@@ -156,6 +156,25 @@ export interface InvalidationConfig<T> {
     readonly expirationMs?: number | null;
 
     /**
+     * The time in milliseconds after a failed fetch before a read may start another.
+     * `refresh()`, `delete()` and `expire()` retry at once.
+     *
+     * Values:
+     * - `null`/`undefined`: {@link InvalidationConfig.expirationMs}; without it, no wait applies
+     * - `0`: every read retries
+     *   A reader that re-runs when the failure is stored reads again, so retries follow each failure at once.
+     * - `Infinity`: only an explicit call retries
+     * - any other number: the wait, also when time-based expiration is disabled
+     *
+     * With no wait:
+     * - a failed first fetch is retried only by an explicit call
+     * - a value that `invalidationCheck` rejects is retried on every read
+     *
+     * The wait gates only the start of a fetch: an expired value stays invalid while it waits.
+     */
+    readonly failureRetryMs?: number | null;
+
+    /**
      * Optional callback that decides if an item is invalid by key, cached value, and cached timestamp.
      * Called in addition to time-based expiration.
      */

@@ -141,6 +141,37 @@ describe('LazyPromise.expireTracker', () => {
         expect(lazy.hasValue).toBeTrue();
     });
 
+    test('a failed load slower than its lifetime waits a lifetime from the failure before a read retries', async () => {
+        const factory = vi.fn(() => delay(200).then((): number => { throw new Error('fail'); }));
+        const lazy = new LazyPromise(factory).withExpire(100);
+
+        const first = lazy.promise;
+        await vi.advanceTimersByTimeAsync(200);
+        await first;
+        expect(lazy.error).toBeInstanceOf(Error);
+
+        void lazy.value;
+        expect(factory).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(100);
+        void lazy.value;
+        expect(factory).toHaveBeenCalledTimes(2);
+    });
+
+    test('expire() mid-load survives the load\'s failure, and the next read retries at once', async () => {
+        const factory = vi.fn(() => delay(10).then((): number => { throw new Error('fail'); }));
+        const lazy = new LazyPromise(factory).withExpire(1000);
+
+        const first = lazy.promise;
+        lazy.expireTracker.expire();
+        await vi.advanceTimersByTimeAsync(10);
+        await first;
+        expect(lazy.error).toBeInstanceOf(Error);
+
+        void lazy.value;
+        expect(factory).toHaveBeenCalledTimes(2);
+    });
+
     test('withExpire(undefined) resets to a never-expiring owned tracker', async () => {
         let counter = 0;
         const lazy = new LazyPromise(() => delay(10).then(() => ++counter)).withExpire(10);

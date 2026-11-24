@@ -166,7 +166,7 @@ describe('PromiseCache.refresh errors', () => {
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
         });
 
-        test('the next get() retries instead of serving the stale value for another TTL window', async () => {
+        test('a get() within the failure wait serves the stale value; the first one after it retries', async () => {
             let calls = 0;
             let shouldFail = false;
             const cache = new PromiseCache<number>(async () => {
@@ -185,11 +185,17 @@ describe('PromiseCache.refresh errors', () => {
             // Stale value stays readable via getCurrent(key, false) throughout.
             expect(cache.getCurrent('a', false)).toBe(1);
 
-            // The next get() retries rather than serving the stale value, since the entry is still expired.
+            // The entry is still expired, but the failure wait has not passed.
+            expect(await cache.get('a')).toBe(1);
+            expect(calls).toBe(2);
+            expect(cache.getIsValid('a')).toBe(false);
+
+            await vi.advanceTimersByTimeAsync(21);
             await cache.get('a');
             expect(calls).toBe(3);
 
             shouldFail = false;
+            await vi.advanceTimersByTimeAsync(21);
             await cache.get('a');
             expect(calls).toBe(4);
             expect(cache.getIsValid('a')).toBe(true);

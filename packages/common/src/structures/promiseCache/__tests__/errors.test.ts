@@ -63,8 +63,7 @@ describe('PromiseCache errors', () => {
             await cache.get('a');
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
-            // A failed fetch that never cached a value has no timestamp, so it never expires on its
-            // own — the error is sticky until explicitly retried via refresh() or delete().
+            // Without an expiration configured, only refresh() or delete() retries a failed fetch.
             shouldFail = false;
             await cache.refresh('a');
 
@@ -214,9 +213,13 @@ describe('PromiseCache errors', () => {
             expect(result).toBe('fallback');
         });
 
-        test('with expirationMs configured, a sticky first-fetch error survives the TTL — get() does not retry, refresh() does', async () => {
+        test('with expirationMs configured, a failed first fetch is retried by a read after the lifetime, not before', async () => {
+            let shouldFail = true;
             const fetcher = vi.fn(async () => {
-                throw new Error('always fails');
+                if (shouldFail) {
+                    throw new Error('fails');
+                }
+                return 'recovered';
             });
 
             const cache = new PromiseCache<string>(fetcher).useInvalidation({ expirationMs: 10 });
@@ -225,16 +228,16 @@ describe('PromiseCache errors', () => {
             expect(fetcher).toHaveBeenCalledTimes(1);
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
-            // No value was ever stored, so there's no timestamp for the TTL to expire.
-            await vi.advanceTimersByTimeAsync(20);
-
-            fetcher.mockClear();
+            await vi.advanceTimersByTimeAsync(9);
             await cache.get('a');
-            expect(fetcher).not.toHaveBeenCalled();
+            expect(fetcher).toHaveBeenCalledTimes(1);
             expect(cache.getLastError('a')).toBeInstanceOf(Error);
 
-            await cache.refresh('a');
-            expect(fetcher).toHaveBeenCalledTimes(1);
+            shouldFail = false;
+            await vi.advanceTimersByTimeAsync(2);
+            expect(await cache.get('a')).toBe('recovered');
+            expect(fetcher).toHaveBeenCalledTimes(2);
+            expect(cache.getLastError('a')).toBeNull();
         });
 
         test('refresh() after sticky error DOES re-fetch', async () => {

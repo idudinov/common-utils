@@ -71,6 +71,7 @@ All return `this` for chaining.
 
 ```ts
 cache.useInvalidation({ expirationMs: 60_000 });          // time-based TTL
+cache.useInvalidation({ expirationMs: 60_000, failureRetryMs: 5_000 }); // a failed fetch is retried after 5s
 cache.useInvalidation({ invalidationCheck: (key, value, cachedAt) => value?.isStale === true });
 cache.useInvalidation(null);                              // disable
 
@@ -121,7 +122,7 @@ Only the next read picks it up.
 A fetch already in flight when `expire()` is called keeps running: its result is stored once it resolves, but the mark survives, so the next read revalidates anyway instead of trusting that result.
 That's the case the rule exists for: a mutation returns while a stale-triggered refetch is already in flight, so that refetch cannot reflect it.
 Storing its result and revalidating on the next read is better than throwing away a real, if outdated, result.
-Starting a fetch consumes the forced staleness, so a failed revalidation doesn't retry on every following read.
+Starting a fetch consumes the forced staleness, so a failed revalidation follows the failure wait, see [Failed fetches](#failed-fetches).
 It's a no-op for a key with no per-key state.
 `sanitize()` sweeps a force-expired key like any other invalid item.
 
@@ -129,7 +130,32 @@ It's a no-op for a key with no per-key state.
 
 Max-items eviction is not core — see `createEvictionExtension` below.
 
-> A read of an expired value whose revalidation keeps failing retries on every read (the entry never becomes valid again on its own). Throttle at the call site, or use `invalidationCheck` to hold the value valid despite the failure. A failed *first* fetch — no value was ever stored — has no TTL to expire from: the error is sticky until `refresh(key)` or `delete(key)` retries it.
+### Failed fetches
+
+After a failed fetch, a read starts another attempt only once the failure wait has passed.
+`failureRetryMs` in `InvalidationConfig` sets that wait:
+
+- not set: `expirationMs`; with no expiration configured, no wait applies
+- `0`: every read retries
+  A reader that re-runs when the failure is stored reads again, so retries follow each failure at once.
+- `Infinity`: only an explicit call retries
+- any other number: the wait, also with no `expirationMs`
+
+A failed refresh of a value that has not expired starts the wait too, so a read once the value expires waits until the wait has passed since that failure.
+`refresh(key)`, `delete(key)` and `expire(key)` retry at once.
+
+With no wait:
+- a failed first fetch is retried only by an explicit call
+- a value that `invalidationCheck` rejects is retried on every read
+
+`failureRetryMs` paces the retries of a value that `invalidationCheck` keeps rejecting.
+
+The wait gates only the start of a fetch.
+
+While the wait runs:
+- an expired value still reports `invalidatedBy: 'time'`, and `sanitize()` still sweeps it
+- the failure time is kept apart from the value's stamp, so `stampedAt` and the `invalidationCheck` timestamp keep dating the stored value
+- a stored value, from a fetch or `set()`, clears the failure time
 
 ### What's core vs. an extension
 
@@ -435,6 +461,7 @@ When a fetcher throws, the error is:
 3. Forwarded to the `useOnError()` callback, if set
 
 The failed fetch resolves to the initial value for a first fetch, or to the stale cached value for a refresh (stale-while-revalidate). The error is cleared on the next successful store, and by `delete()`, `sanitize()`, and `clear()`.
+A read retries a failed fetch per the failure wait, see [Failed fetches](#failed-fetches).
 
 ## Concurrency & Version Safety
 

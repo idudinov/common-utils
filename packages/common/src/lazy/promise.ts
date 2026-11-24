@@ -42,6 +42,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
 
     private _promise: Promise<T | TInitial> | undefined;
     private _expireTracker: IExpireTracker = ExpireTracker.neverExpiring();
+    private _failureTracker: IExpireTracker | undefined;
 
     // Track the active factory promise to determine "latest wins"
     private _activeFactoryPromise: Promise<T | TInitial> | null = null;
@@ -128,8 +129,9 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
      * The expiration tracker driving revalidation; defaults to a never-expiring owned tracker.
      *
      * Restarts the lifetime:
-     * - when a load starts, so a failed load waits one out before retrying
+     * - when a load starts, which clears a force expiry from before the load
      * - when a load resolves, unless {@link IExpireTracker.isForceExpired}
+     * - when a load fails, unless {@link IExpireTracker.isForceExpired}; without {@link withFailureRetry}, this lifetime is the wait before a read retries
      *
      * An `expire()` made mid-load therefore survives that load, and the next read revalidates.
      */
@@ -150,6 +152,35 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             : arg ?? ExpireTracker.neverExpiring();
         if (this._settled.value === 'resolved') {
             this._expireTracker.restart();
+        }
+        return this;
+    }
+
+    /**
+     * Sets the time in ms after a failed load before a read may start another: constructs and owns an {@link ExpireTracker}.
+     * `refresh()`, `reset()` and {@link IExpireTracker.expire} retry at once.
+     *
+     * Values:
+     * - `0`: every read retries
+     *   A reader that re-runs when the failure is stored reads again, so retries follow each failure at once.
+     * - `Infinity`: only an explicit call retries
+     * - any other number: the wait, also without {@link withExpire}
+     *
+     * A resolved value's lifetime stays as {@link withExpire} sets it.
+     */
+    public withFailureRetry(waitMs: number): this;
+    /**
+     * Sets the failure wait using an expire tracker; `undefined` removes it, so the {@link expireTracker} paces retries.
+     *
+     * Restarts the tracker:
+     * - when a load fails
+     * - when it is set while a failure stands, pushing its next expiry out by a full wait
+     */
+    public withFailureRetry(tracker: IExpireTracker | undefined): this;
+    public withFailureRetry(arg: number | IExpireTracker | undefined) {
+        this._failureTracker = typeof arg === 'number' ? new ExpireTracker(arg) : arg;
+        if (this._failureTracker && this._error.value != null) {
+            this._failureTracker.restart();
         }
         return this;
     }
@@ -320,7 +351,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         const settled = this._settled.value;
         if (settled === null) {
             nextState = 'loading';
-        } else if (this._expireTracker.isExpired) {
+        } else if (this.isReloadDue()) {
             nextState = passivePendingKind(settled === 'resolved');
         }
 
@@ -330,6 +361,15 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         }
     }
 
+    /** Whether a read should reload a settled instance: by the failure tracker while a failure stands, by the expire tracker otherwise; a force-expired expire tracker always decides. */
+    private isReloadDue(): boolean {
+        const failureTracker = this._failureTracker;
+        if (failureTracker === undefined || this._error.value == null || this._expireTracker.isForceExpired) {
+            return this._expireTracker.isExpired;
+        }
+        return failureTracker.isExpired;
+    }
+
     /** Starts (or joins) a factory call; returns the promise for this call's outcome — resolves to the instance value and never rejects. */
     private startLoading(refreshing: boolean): Promise<T | TInitial> {
         if (!refreshing && this._activeFactoryPromise) {
@@ -337,7 +377,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
             return this._activeFactoryPromise;
         }
 
-        // Restarting at invocation paces retries: a failed attempt still starts a lifetime.
+        // Clears a force expiry from before the load, so only an expire() made mid-load survives it.
         this._expireTracker.restart();
 
         let factoryResult: Promise<T> | T;
@@ -392,6 +432,10 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
     protected onRejected(e: unknown): T | TInitial {
         return this._transaction(() => {
             this.settle('failed');
+            this._failureTracker?.restart();
+            if (!this._expireTracker.isForceExpired) {
+                this._expireTracker.restart();
+            }
             // Keep the current instance on error (don't reset to initial)
             // This allows retaining the last successful value
             const currentInstance = this._instance.value !== undefined ? this._instance.value : this._initial;

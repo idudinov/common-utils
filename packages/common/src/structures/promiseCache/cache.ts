@@ -10,7 +10,7 @@ import type { Getter } from '../../types/getter.js';
 import type { Nullable } from '../../types/misc.js';
 import { applyExtensionShape } from '../extension.js';
 import type { IPromiseCacheExtension } from './extensions/index.js';
-import { getInvalidationReason, ResolveTimestamps } from './invalidation.js';
+import { getFailureRetryMs, getInvalidationReason, ResolveTimestamps } from './invalidation.js';
 import { PromiseCacheLazyHandle } from './lazyHandle.js';
 import type {
     ErrorCallback,
@@ -71,7 +71,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /** Stores last errors by key. */
     protected readonly _errorsMap: IMapModel<string, unknown>;
 
-    /** Stores items resolve timestamps (for expiration) by key. */
+    /** Stores items resolve timestamps (for expiration) and last failure times (for retry pacing) by key. */
     protected readonly _timestamps = new ResolveTimestamps();
 
     /** Tracks the latest in-flight factory promise per key, used to decide which settle wins ("latest wins" refresh semantics). */
@@ -378,12 +378,12 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
             return existingPromise;
         }
 
-        // If a fetch is in progress or already completed (with error) and not invalidated, don't start a new fetch — error is "sticky".
-        // Use refresh() or delete() to retry.
-        if (this._itemsStatus.has(key) && !isInvalidated) {
+        // A read does not retry a failed fetch while its wait runs, nor, with no wait, unless the cached value is invalid.
+        const failureWait = this._getFailureWait(key);
+        if (failureWait === 'waiting' || (failureWait == null && this._itemsStatus.has(key) && !isInvalidated)) {
             const status = this._itemsStatus.get(key);
-            this.logger.log(key, 'get: fetch already', status ? 'in progress' : 'completed (error)', '— returning initial value');
-            return Promise.resolve(this._getInitialValue(key));
+            this.logger.log(key, 'get: fetch already', status ? 'in progress' : 'completed (error)', '— returning current value');
+            return Promise.resolve(this._getCachedOrInitial(key));
         }
 
         return this._startFetch(key, false, passivePendingKind(hasCached));
@@ -419,7 +419,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     /**
      * Removes all per-key state for the specified key.
      *
-     * Clears the cached item, in-flight promise, loading status, last error, and resolve timestamp — the next read starts a fresh fetch.
+     * Clears the cached item, in-flight promise, loading status, last error, resolve timestamp, and failure time — the next read starts a fresh fetch.
      *
      * @returns Whether any state existed for the key.
      */
@@ -444,7 +444,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      * - If a fetch is already in flight, the next read joins it and resolves to that (stale) result instead — only the read after it revalidates
      * - Stores no value and fires no events
      * - A fetch already in flight still stores its result, but the mark outlives it, so the next read revalidates anyway
-     * - The next fetch consumes the mark, so a failed revalidation does not retry on every read
+     * - The next fetch consumes the mark, so a failed revalidation waits per {@link InvalidationConfig.failureRetryMs} before a read retries
      * - No-op for a key with no per-key state
      *
      * A fetch that resolves after this call started before it, so its result cannot reflect
@@ -463,7 +463,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
      *
      * On store:
      * - runs `value` through the configured `prepareValue` hook first
-     * - clears any previous error and any forced-expiry mark left by `expire()`
+     * - clears any previous error, any failure time, and any forced-expiry mark left by `expire()`
      * - cancels any in-flight fetch for this key
      * - stamps the value with the current time, for time-based invalidation
      */
@@ -653,6 +653,20 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
     }
 
     /**
+     * Whether the wait set by {@link InvalidationConfig.failureRetryMs} has passed since the key's last failed attempt.
+     *
+     * @returns `'waiting'` or `'elapsed'` after a failed attempt, `null` when no wait applies: none failed since the last stored value, none is configured, or `expire()` forced a retry
+     */
+    private _getFailureWait(key: string): 'waiting' | 'elapsed' | null {
+        const failedAt = this._timestamps.getFailedAt(key);
+        const waitMs = getFailureRetryMs(this._invalidationConfig);
+        if (failedAt == null || waitMs == null || this._timestamps.isForcedExpired(key)) {
+            return null;
+        }
+        return Date.now() - failedAt < waitMs ? 'waiting' : 'elapsed';
+    }
+
+    /**
      * Starts a fetch attempt for `key`, as one transaction.
      *
      * @param key The cache key.
@@ -680,8 +694,7 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         this.setStatus(key, pending);
         this.onBeforeFetch(key);
 
-        // An attempt consumes the forced staleness: after a failed fetch the key follows the
-        // configured invalidation policy rather than retrying on every read.
+        // An attempt consumes the forced staleness: after a failed fetch the key follows the failure wait.
         this._timestamps.consumeForcedExpiry(key);
 
         const context: FetchContext = {};
@@ -767,9 +780,10 @@ export class PromiseCache<T, TKey extends string = string, TInitial extends T | 
         }
 
         // Fetch failed — record the error, then return stale value or initial.
-        // An expired value whose refresh fails stays expired, so the next get() retries.
+        // An expired value whose refresh fails stays expired; the failure time paces the next retry.
         this._transaction(() => {
             this._activeFetchPromises.delete(key);
+            this._timestamps.stampFailure(key);
             this._handleError(key, fetchResult.error);
             this.onFetchComplete(key);
         });

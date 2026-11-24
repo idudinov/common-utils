@@ -45,30 +45,52 @@ export function isInvalidated<T>(
     return getInvalidationReason(config, key, getValue, timestamp) != null;
 }
 
-
 /**
- * Resolve times by key, for a cache to decide expiry against, plus which keys are force-expired
- * independently of their resolve time.
+ * The time in ms after a failed attempt before a read may start another, per {@link InvalidationConfig.failureRetryMs}.
+ *
+ * @returns `null` when no wait applies: neither `failureRetryMs` nor a positive `expirationMs` is set.
  */
+export function getFailureRetryMs<T>(config: InvalidationConfig<T> | null): number | null {
+    if (config?.failureRetryMs != null) {
+        return config.failureRetryMs;
+    }
+
+    const expirationMs = config?.expirationMs;
+    return expirationMs != null && expirationMs > 0 ? expirationMs : null;
+}
+
+/** Per-key resolve times, forced-staleness marks and last failure times, which a cache checks expiry and retries against. */
 export class ResolveTimestamps {
     protected readonly _map = new Map<string, number>();
     protected readonly _forced = new Set<string>();
+    protected readonly _failed = new Map<string, number>();
 
-    /** The key's resolve time, or `undefined` if it was never stamped. Forced staleness does not change it. */
+    /** The key's resolve time, or `undefined` if it was never stamped. Forced staleness and failures do not change it. */
     get(key: string): number | undefined {
         return this._map.get(key);
     }
 
+    /** The time of the key's last failed attempt, or `undefined` if none failed since a value was last stamped. */
+    getFailedAt(key: string): number | undefined {
+        return this._failed.get(key);
+    }
+
     has(key: string): boolean {
-        return this._map.has(key) || this._forced.has(key);
+        return this._map.has(key) || this._forced.has(key) || this._failed.has(key);
     }
 
     /**
-     * Begins a fresh lifetime for the key at the current time.
+     * Begins a fresh lifetime for the key at the current time and clears its failure time.
      * Leaves forced staleness untouched, so a mark set while a fetch is in flight survives that fetch's own stamp.
      */
     stamp(key: string) {
         this._map.set(key, Date.now());
+        this._failed.delete(key);
+    }
+
+    /** Records a failed attempt at the current time, leaving the resolve time as it was. */
+    stampFailure(key: string) {
+        this._failed.set(key, Date.now());
     }
 
     /** Marks the key stale independently of its resolve time. */
@@ -88,10 +110,12 @@ export class ResolveTimestamps {
     delete(key: string) {
         this._map.delete(key);
         this._forced.delete(key);
+        this._failed.delete(key);
     }
 
     clear() {
         this._map.clear();
         this._forced.clear();
+        this._failed.clear();
     }
 }
