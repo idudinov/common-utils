@@ -25,7 +25,9 @@ The motivation to have this – just to control and organize some shared code th
 
 * [Functions](./src/functions): [`assert`](./src/functions/assert.ts), [`IDisposable`/`Disposable`/`Disposer`](./src/functions/disposer.ts), [`DebounceAction`/`DebounceProcessor`](./src/functions/debounce.ts).
 
-* [Lazy](./src/lazy): [`Lazy`](./src/lazy/singleton.ts) (sync), [`LazyPromise`](./src/lazy/promise.ts), [`emptyLazyPromise`](./src/lazy/empty.ts) (a settled-empty `ILazyPromise` that never loads).
+* [Lazy](./src/lazy): [`Lazy`](./src/lazy/lazy.ts) (sync), [`LazyPromise`](./src/lazy/promise.ts), [`emptyLazyPromise`](./src/lazy/empty.ts) (a settled-empty `ILazyPromise` that never loads), [`resolvedLazyPromise`](./src/lazy/resolved.ts) (a settled `ILazyPromise` holding a value).
+
+* [Localization](./src/localization/README.md): groups of localized strings (`LocalizedStrings`) that follow one shared language (`LocaleContext`), with patches, async languages and `combineStrings`; `LocalizationManager` is deprecated.
 
 * [Logger interface & console implementation](./src/logger/index.ts): create instance of logger, inject your own implementation or globally enable/disable logger instances by calling `setMode`.
 

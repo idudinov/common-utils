@@ -2,6 +2,10 @@ import type { ILocalization, LocaleStrings, StringsDataSource, StringsLoader } f
 import type { AnyObject } from '../types/misc.js';
 import { Event, type EventHandler } from '../observing/event.js';
 
+/** @import { LocaleContext } from "./LocaleContext" */
+/** @import { LocalizedStrings } from "./LocalizedStrings" */
+
+/** @deprecated Use {@link LocalizedStrings} with a {@link LocaleContext} instead. */
 export class LocalizationManager<TLocaleType extends string, TStrings extends AnyObject> implements ILocalization<TStrings> {
     // initial value is intentionally a nonsense to be updated on first useLocale call
     private _currentLocale: TLocaleType = '' as TLocaleType;

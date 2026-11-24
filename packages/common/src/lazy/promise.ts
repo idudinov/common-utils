@@ -1,6 +1,7 @@
 import { assert } from '../functions/assert.js';
 import { combineDisposers, tryDispose, type IDisposable } from '../functions/disposer.js';
-import type { IResettableModel, IValueModel, ValueStorageProvider } from '../models/types.js';
+import { plainStorageProvider } from '../models/plainStorageProvider.js';
+import type { IResettableModel, IValueModel } from '../models/types.js';
 import { applyExtensionShape } from '../structures/extension.js';
 import { ExpireTracker, type IExpireTracker } from '../structures/expire.js';
 import type { ILazyPromiseExtension } from './extensions/types.js';
@@ -14,11 +15,6 @@ import type {
     LoadingStateStrategy,
     PendingLoadState,
 } from './types.js';
-
-/** Default storage provider: plain, non-observable boxes. */
-const defaultStorageProvider: ValueStorageProvider = {
-    createValue: <V>(initial: V) => ({ value: initial }),
-};
 
 /**
  * Asynchronous lazy-loading container that initializes via a promise-based factory.
@@ -66,7 +62,7 @@ export class LazyPromise<T, TInitial extends T | undefined = undefined> implemen
         this._factory = factory;
         this._initial = initial as TInitial;
 
-        const storage = options?.storage ?? defaultStorageProvider;
+        const storage = options?.storage ?? plainStorageProvider;
         this._prepareValue = options?.prepareValue ?? (value => value);
         this._transaction = storage.transaction?.bind(storage) ?? (fn => fn());
 
