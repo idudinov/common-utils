@@ -16,9 +16,11 @@ export type CallerHooks<TExtra extends object = object> = {
     ) => CallerHooks.HookReturnType;
 
     /**
-     * Called before request is sent.
-     * The config can be mutated or returned as updated object – in the latter case it will be merged into original config via `Object.assign`.
-     * This is useful for adding headers or modifying request data.
+     * Called before request is sent, to add headers or modify request data.
+     *
+     * Config:
+     * - a hook may mutate it
+     * - a returned object is copied onto it with `Object.assign` before the next hook runs, so every hook gets the same config object
      */
     beforeRequest?: <
         T extends IEndpointInfo = IEndpointInfo,
@@ -26,9 +28,11 @@ export type CallerHooks<TExtra extends object = object> = {
     >(config: IRequestConfig<T, TIn, TExtra>) => CallerHooks.HookReturnType<void | IRequestConfig<T, TIn, TExtra>>;
 
     /**
-     * Called after response is receieved.
-     * The config can be mutated or returned as updated object – in the latter case it will be merged into original config via `Object.assign`.
-     * This is useful for adding headers or modifying request data.
+     * Called after response is received.
+     *
+     * Response:
+     * - a returned response replaces the received one, for the next hook and for the caller
+     * - a hook that returns nothing leaves it as it is
      */
     afterResponse?: <
         T extends IEndpointInfo = IEndpointInfo,
@@ -50,13 +54,26 @@ export namespace CallerHooks {
 
     // by default, no adapter, previous value is not affecting the next one
     const Adapters: HookAdaptersMap<object> = {
-        beforeRequest: async (prev, next, arg) => next(await prev ?? arg),
+        beforeRequest: async (prev, next, config) => {
+            const changed = await prev;
+            if (changed) {
+                Object.assign(config, changed);
+            }
+            return next(config);
+        },
         afterResponse: async (prev, next, config, response) => {
-            const nextResponse = await prev ?? response;
-            return next(config, nextResponse as any);
+            const received = await prev ?? response;
+            return await next(config, received as any) ?? received;
         },
     };
 
+    /**
+     * Merges hooks into one set, running the hooks of each kind in the order given.
+     *
+     * Chaining:
+     * - each {@link CallerHooks.beforeRequest} and {@link CallerHooks.afterResponse} hook gets what the previous one changed or returned
+     * - each other hook gets the original arguments
+     */
     export function merge<TExtra extends object>(items: Nullable<CallerHooks<TExtra> | CallerHooks<TExtra>[]>): CallerHooks<TExtra> {
         const result: CallerHooks<TExtra> = { };
         if (!items) {

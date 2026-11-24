@@ -79,6 +79,29 @@ describe('api/body', () => {
             expect(sent().data).toBe('a');
         });
 
+        test('drops the keys of a query type declared as an interface', async () => {
+            const { caller, sent } = createCaller();
+
+            interface IPage { page: number }
+
+            const queryKey = Endpoint()
+                .post<{ name: string, page: number }, void>()
+                .withQuery<IPage>('page')
+                // @ts-expect-error a query key never reaches the body, whether its type is a literal or an interface
+                .withBody(input => input.page);
+
+            const queryRest = Endpoint()
+                .post<{ name: string, page: number }, void>()
+                .withQuery<IPage>('page')
+                .withBody(input => input.name);
+
+            await caller(queryKey, { name: 'a', page: 2 });
+            expect(sent().data).toBeUndefined();
+
+            await caller(queryRest, { name: 'a', page: 2 });
+            expect(sent().data).toBe('a');
+        });
+
         test('keeps each member of a union input, and ignores a null member', async () => {
             const { caller, sent } = createCaller();
 

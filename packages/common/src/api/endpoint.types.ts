@@ -81,7 +81,7 @@ export namespace IEndpointInfo {
         ? Path.ExtractObjectArgs<TPath, F>
         : F;
 
-    export type ExtractQuery<T, F = Empty> = T extends IQuery<infer TQuery extends QueryArgs>
+    export type ExtractQuery<T, F = Empty> = T extends IQuery<infer TQuery extends object>
         ? TQuery
         : F;
 
