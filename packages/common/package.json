@@ -1,6 +1,6 @@
 {
   "name": "@zajno/common",
-  "version": "3.2.2",
+  "version": "3.3.0",
   "description": "Zajno's re-usable utilities for JS/TS projects",
   "private": false,
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "sideEffects": false,
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "author": "Zajno <hello@zajno.com> (https://zajno.com)",
   "license": "MIT",

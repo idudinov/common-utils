@@ -57,3 +57,18 @@ Sequences of the above; these do not forward args.
 - `check:publish` — build:clean, bundle, publint, attw
 - `publish:local` — build:full, bundle, yalc push from `dist/`
 - `publish:from-dist` — build:full, bundle, npm publish from `dist/`
+
+## Node version
+
+Development and CI run on the Node version that `devEngines` names in the root [`package.json`](./package.json); npm refuses to install on any other.
+mise picks it up when its `idiomatic_version_file_enable_tools` setting includes `node`.
+
+## Workflow actions
+
+Every action the workflows use is locked to a commit in [`.github/workflows/actions.lock`](./.github/workflows/actions.lock), and CI fails when the lockfile is out of step with the workflows.
+
+After changing a `uses:` line:
+- run `gh actions-lock`, from the `github/gh-actions-lock` extension;
+- commit the lockfile with the workflow change.
+
+Dependabot proposes action updates once a month, with the lockfile entries updated in its pull request.

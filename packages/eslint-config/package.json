@@ -22,7 +22,7 @@
     "type": "module",
     "types": "index.d.ts",
     "engines": {
-        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+        "node": ">=22"
     },
     "scripts": {
         "publish:local": "yalc push --private --replace --update",
